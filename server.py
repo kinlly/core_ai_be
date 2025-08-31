@@ -1,21 +1,19 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import torch
 import os
 import logging
-import csv
-from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import login
-from dotenv import load_dotenv
 
 from utils import apply_mistral_chat_template, log_response
 from auth import login_huggingface
 
-
-load_dotenv()
 login_huggingface()
 
 MODEL_NAME = os.getenv("MODEL_NAME")
@@ -75,7 +73,7 @@ except Exception as e:
 
 class ConversationRequest(BaseModel):
     conversation: list[dict]  # [{"role": "user"/"assistant", "content": "..."}]
-    temperatures: list[float] = [0.3, 0.5, 0.7]
+    temperatures: list[float] = [0, 0.3, 0.5, 0.7]
     max_new_tokens: int = 128
     seed: int = SEED
 
@@ -86,29 +84,44 @@ async def generate_response(request: ConversationRequest):
     
     # Construir prompt con historial
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + request.conversation
-    formatted_prompt = apply_mistral_chat_template(msgs, add_generation_prompt=True)
+    formatted_prompt = apply_mistral_chat_template(msgs)
+    
+    print(formatted_prompt)   
     
     candidates = []
 
     for temp in request.temperatures:
         try:
             # Fijar semilla por temperatura
-            if SEED != -1:
+            if SEED != "-1":
+                logging.info(f"Adding Seed {request.seed}")
                 torch.manual_seed(request.seed)
+            else:
+                logging.info(f"Skipping Seed")
 
             inputs = tokenizer(formatted_prompt, return_tensors="pt", padding=True, truncation=True).to(device)
             
             with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=request.max_new_tokens,
-                    do_sample=True,
-                    temperature=temp,
-                    top_p=0.9,
-                    repetition_penalty=1.1,
-                    eos_token_id=tokenizer.eos_token_id,
-                    pad_token_id=tokenizer.pad_token_id,
-                )
+                if temp == 0:
+                    outputs = model.generate(
+                        **inputs,
+                        max_new_tokens=request.max_new_tokens,
+                        do_sample=False,
+                        repetition_penalty=1.1,
+                        eos_token_id=tokenizer.eos_token_id,
+                        pad_token_id=tokenizer.pad_token_id,
+                    )
+                else:
+                    outputs = model.generate(
+                        **inputs,
+                        max_new_tokens=request.max_new_tokens,
+                        do_sample=True,
+                        temperature=temp,
+                        top_p=0.9,
+                        repetition_penalty=1.1,
+                        eos_token_id=tokenizer.eos_token_id,
+                        pad_token_id=tokenizer.pad_token_id,
+                    )
 
             text = tokenizer.decode(outputs[0], skip_special_tokens=False)
             # Extraer respuesta tras [/INST]

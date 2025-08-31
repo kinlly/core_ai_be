@@ -1,18 +1,38 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 # utils.py
-def apply_mistral_chat_template(messages, add_generation_prompt=True):
-    conversation = ""
+import os
+import csv
+from datetime import datetime
+
+LOG_FILE = os.getenv("LOG_FILE")
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+
+def apply_mistral_chat_template(messages):
+    conversation = "<s>"
+    conversation += f"[INST] <<SYS>>\n{SYSTEM_PROMPT}\n<</SYS>>\n\n"
+
+    first_user = True
     for msg in messages:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "system":
-            conversation += f"[INST]{content} [/INST]\n"
-        elif role == "user":
-            conversation += f"[INST]{content} [/INST]\n"
-        elif role == "assistant":
-            conversation += f"{content}\n"
-    if add_generation_prompt:
-        conversation += "\n"
+        role = msg.get("role") or msg.get("from")  # soporta 'role' o 'from'
+        content = msg.get("content") or msg.get("value")
+        
+        if role in ["user", "human", "USER", "HUMAN"]:
+            if first_user:
+                # El primer usuario va directo después del system prompt, sin [INST]
+                conversation += f"{content} [/INST] "
+                first_user = False
+            else:
+                # Los siguientes mensajes de usuario abren [INST]
+                conversation += f"[INST] {content} [/INST] "
+        elif role in ["assistant", "ASSISTANT"]:
+            # respuesta de la IA justo después del [/INST] del usuario
+            conversation += f"{content} "
+
+    conversation = conversation.strip()
     return conversation
+
 
 def log_response(prompt, temperature, response):
     """Guarda la respuesta en CSV para tracking/testing."""
