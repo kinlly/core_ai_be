@@ -11,28 +11,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import login
 from dotenv import load_dotenv
 
+from utils import apply_mistral_chat_template, log_response
+from auth import login_huggingface
+
+
 load_dotenv()
-huggingface_key = os.getenv("HUGGINGFACE_KEY")
-login(token=huggingface_key)
+login_huggingface()
 
-# -------------------------
-# CONFIG
-# -------------------------
-MODEL_NAME = "unsloth/mistral-7b-instruct-v0.3-bnb-4bit"
-FINAL_DIR = r"C:\repos\mistral-finetune"
-ADAPTER_DIR = FINAL_DIR
-OFFLOAD_DIR = os.path.join(FINAL_DIR, "offload_infer")
-
-SYSTEM_PROMPT = """Eres Yui. Responde SIEMPRE en primera persona ("yo"), con tono directo y conciso.
-No uses etiquetas como "Yui:" ni narrador en tercera persona.
-No repitas la instrucción del usuario.
-Siempre responde en español (castellano).
-Canon (no contradigas):
-- Género Mujer.
-"""
-
-LOG_FILE = "response_log.csv"
-SEED = 3407
+MODEL_NAME = os.getenv("MODEL_NAME")
+MODEL_ADAPTER_DIR = os.getenv("MODEL_ADAPTER_DIR")
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+LOG_FILE = os.getenv("LOG_FILE")
+SEED = os.getenv("SEED")
+ADAPTER_DIR = MODEL_ADAPTER_DIR
+OFFLOAD_DIR = os.path.join(MODEL_ADAPTER_DIR, "offload_infer")
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,9 +45,9 @@ tokenizer = None
 # MODELO
 # -------------------------
 try:
-    logging.info(f"Archivos en {FINAL_DIR}: {os.listdir(FINAL_DIR)}")
+    logging.info(f"Archivos en {MODEL_ADAPTER_DIR}: {os.listdir(MODEL_ADAPTER_DIR)}")
 
-    tokenizer = AutoTokenizer.from_pretrained(FINAL_DIR, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ADAPTER_DIR, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -81,36 +73,6 @@ except Exception as e:
     model = None
     tokenizer = None
 
-# -------------------------
-# UTIL
-# -------------------------
-def apply_mistral_chat_template(messages, add_generation_prompt=True):
-    conversation = ""
-    for msg in messages:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "system":
-            conversation += f"[INST]{content} [/INST]\n"
-        elif role == "user":
-            conversation += f"[INST]{content} [/INST]\n"
-        elif role == "assistant":
-            conversation += f"{content}\n"
-    if add_generation_prompt:
-        conversation += "\n"
-    return conversation
-
-def log_response(prompt, temperature, response):
-    """Guarda la respuesta en CSV para tracking/testing."""
-    file_exists = os.path.isfile(LOG_FILE)
-    with open(LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["timestamp", "prompt", "temperature", "response"])
-        writer.writerow([datetime.now().isoformat(), prompt, temperature, response])
-
-# -------------------------
-# API
-# -------------------------
 class ConversationRequest(BaseModel):
     conversation: list[dict]  # [{"role": "user"/"assistant", "content": "..."}]
     temperatures: list[float] = [0.3, 0.5, 0.7]
@@ -131,7 +93,8 @@ async def generate_response(request: ConversationRequest):
     for temp in request.temperatures:
         try:
             # Fijar semilla por temperatura
-            torch.manual_seed(request.seed)
+            if SEED != -1:
+                torch.manual_seed(request.seed)
 
             inputs = tokenizer(formatted_prompt, return_tensors="pt", padding=True, truncation=True).to(device)
             
