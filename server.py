@@ -11,15 +11,15 @@ from peft import PeftModel
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import login
 from pathlib import Path
-from file_utils import load_jsonl, save_jsonl
+from file_utils import load_jsonl, save_jsonl, load_txt
 
 from utils import apply_mistral_chat_template, log_response
 from auth import login_huggingface
-from disk_read import load_main_jsonl
 
 login_huggingface()
 
-BASE_DIR = Path(os.getenv("MAIN_DATA_DIR"))
+MAIN_DATA_DIR = Path(os.getenv("MAIN_DATA_DIR"))
+BOOK_DATA_PATH = Path(os.getenv("BOOK_DATA_PATH"))
 MODEL_NAME = os.getenv("MODEL_NAME")
 MODEL_ADAPTER_DIR = os.getenv("MODEL_ADAPTER_DIR")
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
@@ -144,23 +144,21 @@ async def generate_response(request: ConversationRequest):
 
 @app.get("/files")
 def list_files():
-    if not BASE_DIR.exists():
+    if not MAIN_DATA_DIR.exists():
         raise HTTPException(404, detail="Directorio no encontrado")
-    files = [f.name for f in BASE_DIR.glob("*.jsonl")]
+    files = [f.name for f in MAIN_DATA_DIR.glob("*.jsonl")]
     return {"files": files}
-
 
 @app.get("/files/{filename}")
 def read_file(filename: str):
-    path = BASE_DIR / filename
+    path = MAIN_DATA_DIR / filename
     if not path.exists():
         raise HTTPException(404, detail="Fichero no encontrado")
     return load_jsonl(path)
 
-
 @app.post("/files/{filename}")
 def add_line(filename: str, record: dict):
-    path = BASE_DIR / filename
+    path = MAIN_DATA_DIR / filename
     if not path.exists():
         raise HTTPException(404, detail="Fichero no encontrado")
     records = load_jsonl(path)
@@ -168,10 +166,9 @@ def add_line(filename: str, record: dict):
     save_jsonl(path, records)
     return {"status": "ok", "total": len(records)}
 
-
 @app.put("/files/{filename}/{index}")
 def update_line(filename: str, index: int, record: dict):
-    path = BASE_DIR / filename
+    path = MAIN_DATA_DIR / filename
     if not path.exists():
         raise HTTPException(404, detail="Fichero no encontrado")
     records = load_jsonl(path)
@@ -181,10 +178,9 @@ def update_line(filename: str, index: int, record: dict):
     save_jsonl(path, records)
     return {"status": "ok", "updated_index": index}
 
-
 @app.delete("/files/{filename}/{index}")
 def delete_line(filename: str, index: int):
-    path = BASE_DIR / filename
+    path = MAIN_DATA_DIR / filename
     if not path.exists():
         raise HTTPException(404, detail="Fichero no encontrado")
     records = load_jsonl(path)
@@ -193,3 +189,36 @@ def delete_line(filename: str, index: int):
     removed = records.pop(index)
     save_jsonl(path, records)
     return {"status": "ok", "deleted": removed}
+
+@app.get("/book")
+def get_all_lines():
+    """Devuelve todas las líneas del archivo BOOK_DATA_PATH"""
+    path = BOOK_DATA_PATH
+    if not path.exists():
+        raise HTTPException(404, detail="Archivo no encontrado")
+    return load_txt(path)
+
+@app.get("/book/{chapter}")
+def get_line(chapter: int):
+    """Devuelve una línea específica por índice"""
+    path = BOOK_DATA_PATH
+    if not path.exists():
+        raise HTTPException(404, detail="Archivo no encontrado")
+    lines = load_txt(path)
+    if chapter < 0 or chapter >= len(lines):
+        raise HTTPException(400, detail="Índice fuera de rango")
+    return {"index": chapter-1, "line": lines[chapter-1]}
+
+@app.put("/book/{index}")
+def update_line(index: int, line: str):
+    """Actualiza la línea en la posición indicada"""
+    path = BOOK_DATA_PATH
+    if not path.exists():
+        raise HTTPException(404, detail="Archivo no encontrado")
+    lines = load_txt(path)
+    if index < 0 or index >= len(lines):
+        raise HTTPException(400, detail="Índice fuera de rango")
+    lines[index] = line
+    with path.open("w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return {"status": "ok", "updated_index": index}

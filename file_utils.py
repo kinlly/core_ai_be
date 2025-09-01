@@ -2,6 +2,15 @@
 import json
 from pathlib import Path
 
+def load_txt(path: Path):
+    records = []
+    with Path(path).open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                records.append(line)
+    return records
+
 def load_jsonl(path: Path):
     records = []
     with Path(path).open("r", encoding="utf-8") as f:
