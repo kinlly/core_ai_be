@@ -10,6 +10,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import login
+from pathlib import Path
+from file_utils import load_jsonl, save_jsonl
 
 from utils import apply_mistral_chat_template, log_response
 from auth import login_huggingface
@@ -17,6 +19,7 @@ from disk_read import load_main_jsonl
 
 login_huggingface()
 
+BASE_DIR = Path(os.getenv("MAIN_DATA_DIR"))
 MODEL_NAME = os.getenv("MODEL_NAME")
 MODEL_ADAPTER_DIR = os.getenv("MODEL_ADAPTER_DIR")
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
@@ -83,7 +86,6 @@ async def generate_response(request: ConversationRequest):
     if model is None or tokenizer is None:
         raise HTTPException(status_code=500, detail="El modelo no está cargado.")
     
-    # Construir prompt con historial
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + request.conversation
     formatted_prompt = apply_mistral_chat_template(msgs)
     
@@ -93,7 +95,6 @@ async def generate_response(request: ConversationRequest):
 
     for temp in request.temperatures:
         try:
-            # Fijar semilla por temperatura
             if SEED != "-1":
                 logging.info(f"Adding Seed {request.seed}")
                 torch.manual_seed(request.seed)
@@ -125,13 +126,11 @@ async def generate_response(request: ConversationRequest):
                     )
 
             text = tokenizer.decode(outputs[0], skip_special_tokens=False)
-            # Extraer respuesta tras [/INST]
+
             assistant_response = text.split("[/INST]")[-1].strip().split("\n")[0]
             
-            # Guardar log
             log_response(formatted_prompt, temp, assistant_response)
 
-            # Añadir al listado de candidatos
             candidates.append({"temperature": temp, "response": assistant_response})
             logging.info(f"[Temp {temp}] {assistant_response}")
 
@@ -139,7 +138,6 @@ async def generate_response(request: ConversationRequest):
             logging.error(f"⚠️ Error generando respuesta a temp {temp}: {e}")
             candidates.append({"temperature": temp, "response": ""})
 
-    # Añadir empty para input manual
     candidates.append({"temperature": "manual", "response": ""})
     
     return {"candidates": candidates}
@@ -150,3 +148,55 @@ async def generate_response():
     print(f"Leídas {len(data)} entradas")
     print(data[0])
     return data
+
+@app.get("/files")
+def list_files():
+    if not BASE_DIR.exists():
+        raise HTTPException(404, detail="Directorio no encontrado")
+    files = [f.name for f in BASE_DIR.glob("*.jsonl")]
+    return {"files": files}
+
+
+@app.get("/files/{filename}")
+def read_file(filename: str):
+    path = BASE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, detail="Fichero no encontrado")
+    return load_jsonl(path)
+
+
+@app.post("/files/{filename}")
+def add_line(filename: str, record: dict):
+    path = BASE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, detail="Fichero no encontrado")
+    records = load_jsonl(path)
+    records.append(record)
+    save_jsonl(path, records)
+    return {"status": "ok", "total": len(records)}
+
+
+@app.put("/files/{filename}/{index}")
+def update_line(filename: str, index: int, record: dict):
+    path = BASE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, detail="Fichero no encontrado")
+    records = load_jsonl(path)
+    if index < 0 or index >= len(records):
+        raise HTTPException(400, detail="Índice fuera de rango")
+    records[index] = record
+    save_jsonl(path, records)
+    return {"status": "ok", "updated_index": index}
+
+
+@app.delete("/files/{filename}/{index}")
+def delete_line(filename: str, index: int):
+    path = BASE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, detail="Fichero no encontrado")
+    records = load_jsonl(path)
+    if index < 0 or index >= len(records):
+        raise HTTPException(400, detail="Índice fuera de rango")
+    removed = records.pop(index)
+    save_jsonl(path, records)
+    return {"status": "ok", "deleted": removed}
