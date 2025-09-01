@@ -13,6 +13,7 @@ from huggingface_hub import login
 
 from utils import apply_mistral_chat_template, log_response
 from auth import login_huggingface
+from disk_read import load_main_jsonl
 
 login_huggingface()
 
@@ -142,3 +143,10 @@ async def generate_response(request: ConversationRequest):
     candidates.append({"temperature": "manual", "response": ""})
     
     return {"candidates": candidates}
+
+@app.get("/main-data")
+async def generate_response():
+    data = load_main_jsonl()
+    print(f"Leídas {len(data)} entradas")
+    print(data[0])
+    return data
