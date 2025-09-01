@@ -142,13 +142,6 @@ async def generate_response(request: ConversationRequest):
     
     return {"candidates": candidates}
 
-@app.get("/main-data")
-async def generate_response():
-    data = load_main_jsonl()
-    print(f"Leídas {len(data)} entradas")
-    print(data[0])
-    return data
-
 @app.get("/files")
 def list_files():
     if not BASE_DIR.exists():
