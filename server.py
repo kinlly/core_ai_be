@@ -209,16 +209,18 @@ def get_line(chapter: int):
         raise HTTPException(400, detail="Índice fuera de rango")
     return {"index": chapter-1, "line": lines[chapter-1]}
 
+class LineUpdate(BaseModel):
+    line: str
+
 @app.put("/book/{index}")
-def update_line(index: int, line: str):
-    """Actualiza la línea en la posición indicada"""
+def update_line(index: int, payload: LineUpdate):
     path = BOOK_DATA_PATH
     if not path.exists():
         raise HTTPException(404, detail="Archivo no encontrado")
     lines = load_txt(path)
     if index < 0 or index >= len(lines):
         raise HTTPException(400, detail="Índice fuera de rango")
-    lines[index] = line
+    lines[index] = payload.line
     with path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return {"status": "ok", "updated_index": index}
