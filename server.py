@@ -146,7 +146,14 @@ async def generate_response(request: ConversationRequest):
 def list_files():
     if not MAIN_DATA_DIR.exists():
         raise HTTPException(404, detail="Directorio no encontrado")
-    files = [f.name for f in MAIN_DATA_DIR.glob("*.jsonl")]
+
+    files = [
+        {
+            "name": f.name,
+            "size": f.stat().st_size  # tamaño en bytes
+        }
+        for f in MAIN_DATA_DIR.glob("*.jsonl")
+    ]
     return {"files": files}
 
 @app.get("/files/{filename}")
