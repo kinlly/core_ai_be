@@ -3,6 +3,7 @@ load_dotenv()
 
 import torch
 import os
+import json
 import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -231,3 +232,83 @@ def update_line(index: int, payload: LineUpdate):
     with path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return {"status": "ok", "updated_index": index}
+
+@app.put("/editor/json/{filename}")
+def update_json(filename: str, record: dict):
+    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
+    if not filename.lower().endswith(".json"):
+        filename += ".json"
+    
+    path: Path = TARGET_DIR / filename
+    
+    try:
+        TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Error al acceder al directorio {TARGET_DIR}: {e}")
+        raise HTTPException(status_code=500, detail="Error al acceder al directorio de destino.")
+
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(record, f, indent=4, ensure_ascii=False)
+        
+        logging.info(f"🔄 JSON actualizado/sobrescrito correctamente en: {path}")
+        return {"status": "ok", "filename": filename, "path": str(path)}
+    except Exception as e:
+        logging.error(f"⚠️ Error al actualizar el archivo JSON en {path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al actualizar el archivo: {e}")
+
+@app.get("/editor/json")
+def list_json_files():
+    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
+    if not TARGET_DIR.exists():
+        raise HTTPException(404, detail=f"Directorio de destino no encontrado: {TARGET_DIR}")
+
+    files_data = []
+
+    for f in TARGET_DIR.glob("*.json"):
+        if f.is_file():
+            file_info = {
+                "name": f.name,
+                "size": f.stat().st_size,  # tamaño en bytes
+                "path": str(f.resolve()), # ruta absoluta
+                "content": None # Inicializamos el contenido
+            }
+            
+            try:
+                with f.open("r", encoding="utf-8") as file:
+                    file_info["content"] = json.load(file)
+                
+            except json.JSONDecodeError:
+                logging.warning(f"⚠️ Error de formato JSON en el archivo: {f.name}. Se devuelve 'null' en 'content'.")
+            except Exception as e:
+                logging.error(f"⚠️ Error al leer el archivo {f.name}: {e}")
+            
+            files_data.append(file_info)
+
+    return {"files": files_data}
+
+@app.post("/editor/json/{filename}")
+def add_json(filename: str, record: dict):
+    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
+    
+    if not filename.lower().endswith(".json"):
+        filename += ".json"
+    
+    path: Path = TARGET_DIR / filename
+    
+    try:
+        TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Error al crear el directorio {TARGET_DIR}: {e}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor al acceder al directorio de destino.")
+
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(record, f, indent=4, ensure_ascii=False)
+        
+        logging.info(f"✅ JSON guardado correctamente en la ruta fija: {path}")
+        return {"status": "ok", "filename": filename, "path": str(path)}
+    except Exception as e:
+        logging.error(f"⚠️ Error al guardar el archivo JSON en {path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {e}")
+
