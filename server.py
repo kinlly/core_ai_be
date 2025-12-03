@@ -312,3 +312,61 @@ def add_json(filename: str, record: dict):
         logging.error(f"⚠️ Error al guardar el archivo JSON en {path}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {e}")
 
+def load_json():
+    ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
+    if not ITEMS_PATH.exists():
+        return {}
+    try:
+        with ITEMS_PATH.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_json(data):
+    ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
+    Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data").mkdir(parents=True, exist_ok=True)
+    with ITEMS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+# --- ENDPOINTS ---
+
+@app.get("/editor/items")
+def get_items():
+    """Retorna la lista completa de items."""
+    return load_json()
+
+@app.post("/editor/items/{item_name}")
+def create_item(item_name: str, item_data: dict):
+    """Crea un nuevo item si no existe."""
+    data = load_json()
+    
+    if item_name in data:
+        raise HTTPException(status_code=400, detail="El item ya existe")
+    
+    data[item_name] = item_data
+    save_json(data)
+    return {"status": "created", "item": item_name}
+
+@app.put("/editor/items/{item_name}")
+def update_item(item_name: str, item_data: dict):
+    """Actualiza un item específico en tiempo real."""
+    data = load_json()
+    
+    if item_name not in data:
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+        
+    data[item_name] = item_data
+    save_json(data)
+    return {"status": "updated", "item": item_name}
+
+@app.delete("/editor/items/{item_name}")
+def delete_item(item_name: str):
+    """Elimina un item específico."""
+    data = load_json()
+    
+    if item_name not in data:
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+        
+    del data[item_name]
+    save_json(data)
+    return {"status": "deleted", "item": item_name}
