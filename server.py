@@ -328,28 +328,53 @@ def save_json(data):
     with ITEMS_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# --- ENDPOINTS ---
+# --- PATH & UTILS ---
+ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
+# RootData ahora es un diccionario plano {item_id: item_data}
+RootData = dict[str, dict]
+
+def load_json() -> RootData:
+    if not os.path.exists(ITEMS_PATH):
+        # Inicializamos con la estructura correcta vacía (un diccionario vacío)
+        return {}
+    try:
+        with open(ITEMS_PATH, "r") as f:
+            data = json.load(f)
+            # Nos aseguramos de que sea un diccionario, si no, devolvemos uno vacío
+            return data if isinstance(data, dict) else {}
+    except:
+        return {}
+
+def save_json(data: RootData):
+    with open(ITEMS_PATH, "w") as f:
+        # Usamos indent=4 para mantenerlo legible
+        json.dump(data, f, indent=4)
+
+# --- ENDPOINTS (Actualizados) ---
 
 @app.get("/editor/items")
 def get_items():
-    """Retorna la lista completa de items."""
+    """Retorna la lista completa de items plana."""
+    # Retorna directamente el diccionario plano de ítems.
     return load_json()
 
 @app.post("/editor/items/{item_name}")
 def create_item(item_name: str, item_data: dict):
-    """Crea un nuevo item si no existe."""
+    """Crea un item con una clave de ID única."""
     data = load_json()
     
+    # Verificamos si la clave ID ya existe en la lista plana
     if item_name in data:
-        raise HTTPException(status_code=400, detail="El item ya existe")
+        raise HTTPException(status_code=400, detail=f"El item ID '{item_name}' ya existe.")
     
     data[item_name] = item_data
     save_json(data)
+    # Ya no necesitamos retornar la 'category'
     return {"status": "created", "item": item_name}
 
 @app.put("/editor/items/{item_name}")
 def update_item(item_name: str, item_data: dict):
-    """Actualiza un item específico en tiempo real."""
+    """Actualiza un item específico en tiempo real por su ID."""
     data = load_json()
     
     if item_name not in data:
@@ -361,7 +386,7 @@ def update_item(item_name: str, item_data: dict):
 
 @app.delete("/editor/items/{item_name}")
 def delete_item(item_name: str):
-    """Elimina un item específico."""
+    """Elimina un item específico por su ID."""
     data = load_json()
     
     if item_name not in data:
