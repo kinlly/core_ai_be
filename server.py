@@ -395,3 +395,66 @@ def delete_item(item_name: str):
     del data[item_name]
     save_json(data)
     return {"status": "deleted", "item": item_name}
+
+ENEMIES_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "enemies.json"
+EnemyRootData = dict[str, dict]
+
+def load_enemies_json() -> EnemyRootData:
+    """Carga los datos de enemigos desde enemies.json."""
+    if not os.path.exists(ENEMIES_PATH):
+        return {}
+    try:
+        with open(ENEMIES_PATH, "r") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except:
+        return {}
+
+def save_enemies_json(data: EnemyRootData):
+    """Guarda los datos de enemigos en enemies.json."""
+    with open(ENEMIES_PATH, "w") as f:
+        # Usamos indent=4 para mantenerlo legible
+        json.dump(data, f, indent=4)
+
+# --- ENDPOINTS CRUD DE ENEMIGOS ---
+
+@app.get("/editor/enemies")
+def get_enemies():
+    """Retorna el diccionario completo y plano de enemigos."""
+    return load_enemies_json()
+
+@app.post("/editor/enemies/{enemy_id}")
+def create_enemy(enemy_id: str, enemy_data: dict):
+    """Crea un nuevo enemigo con una clave de ID única."""
+    data = load_enemies_json()
+    
+    if enemy_id in data:
+        raise HTTPException(status_code=400, detail=f"El enemigo ID '{enemy_id}' ya existe.")
+    
+    data[enemy_id] = enemy_data
+    save_enemies_json(data)
+    return {"status": "created", "enemy_id": enemy_id}
+
+@app.put("/editor/enemies/{enemy_id}")
+def update_enemy(enemy_id: str, enemy_data: dict):
+    """Actualiza un enemigo específico por su ID."""
+    data = load_enemies_json()
+    
+    if enemy_id not in data:
+        raise HTTPException(status_code=404, detail="Enemigo no encontrado")
+        
+    data[enemy_id] = enemy_data
+    save_enemies_json(data)
+    return {"status": "updated", "enemy_id": enemy_id}
+
+@app.delete("/editor/enemies/{enemy_id}")
+def delete_enemy(enemy_id: str):
+    """Elimina un enemigo específico por su ID."""
+    data = load_enemies_json()
+    
+    if enemy_id not in data:
+        raise HTTPException(status_code=404, detail="Enemigo no encontrado")
+        
+    del data[enemy_id]
+    save_enemies_json(data)
+    return {"status": "deleted", "enemy_id": enemy_id}
