@@ -233,18 +233,23 @@ def update_line(index: int, payload: LineUpdate):
         f.write("\n".join(lines) + "\n")
     return {"status": "ok", "updated_index": index}
 
+TARGET_DIR = Path(r"C:\repos\PenguinProto\datafiles")
+TARGET_DIR_SCENES = TARGET_DIR  / "scenes"
+TARGET_DIR_ITEMS = TARGET_DIR  / "items"
+TARGET_DIR_ENEMIES = TARGET_DIR  / "enemies"
+
 @app.put("/editor/json/{filename}")
 def update_json(filename: str, record: dict):
-    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
+    
     if not filename.lower().endswith(".json"):
         filename += ".json"
     
-    path: Path = TARGET_DIR / filename
+    path: Path = TARGET_DIR_SCENES / filename
     
     try:
-        TARGET_DIR.mkdir(parents=True, exist_ok=True)
+        TARGET_DIR_SCENES.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        logging.error(f"Error al acceder al directorio {TARGET_DIR}: {e}")
+        logging.error(f"Error al acceder al directorio {TARGET_DIR_SCENES}: {e}")
         raise HTTPException(status_code=500, detail="Error al acceder al directorio de destino.")
 
     try:
@@ -259,13 +264,12 @@ def update_json(filename: str, record: dict):
 
 @app.get("/editor/json")
 def list_json_files():
-    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
-    if not TARGET_DIR.exists():
-        raise HTTPException(404, detail=f"Directorio de destino no encontrado: {TARGET_DIR}")
+    if not TARGET_DIR_SCENES.exists():
+        raise HTTPException(404, detail=f"Directorio de destino no encontrado: {TARGET_DIR_SCENES}")
 
     files_data = []
 
-    for f in TARGET_DIR.glob("*.json"):
+    for f in TARGET_DIR_SCENES.glob("*.json"):
         if f.is_file():
             file_info = {
                 "name": f.name,
@@ -289,17 +293,15 @@ def list_json_files():
 
 @app.post("/editor/json/{filename}")
 def add_json(filename: str, record: dict):
-    TARGET_DIR = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data")
-    
     if not filename.lower().endswith(".json"):
         filename += ".json"
     
-    path: Path = TARGET_DIR / filename
+    path: Path = TARGET_DIR_SCENES / filename
     
     try:
-        TARGET_DIR.mkdir(parents=True, exist_ok=True)
+        TARGET_DIR_SCENES.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        logging.error(f"Error al crear el directorio {TARGET_DIR}: {e}")
+        logging.error(f"Error al crear el directorio {TARGET_DIR_SCENES}: {e}")
         raise HTTPException(status_code=500, detail="Error interno del servidor al acceder al directorio de destino.")
 
     try:
@@ -313,7 +315,7 @@ def add_json(filename: str, record: dict):
         raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {e}")
 
 def load_json():
-    ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
+    ITEMS_PATH = TARGET_DIR_ITEMS / "items.json"
     if not ITEMS_PATH.exists():
         return {}
     try:
@@ -323,13 +325,14 @@ def load_json():
         return {}
 
 def save_json(data):
-    ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
-    Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data").mkdir(parents=True, exist_ok=True)
+    ITEMS_PATH = TARGET_DIR_ITEMS / "items.json"
+    TARGET_DIR_ITEMS.mkdir(parents=True, exist_ok=True)
     with ITEMS_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 # --- PATH & UTILS ---
-ITEMS_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "items.json"
+
+ITEMS_PATH = TARGET_DIR_ITEMS / "items.json"
 # RootData ahora es un diccionario plano {item_id: item_data}
 RootData = dict[str, dict]
 
@@ -396,7 +399,7 @@ def delete_item(item_name: str):
     save_json(data)
     return {"status": "deleted", "item": item_name}
 
-ENEMIES_PATH = Path(r"C:\repos\core-dialog-editor\dialogue-editor\src\data") / "enemies.json"
+ENEMIES_PATH = TARGET_DIR_ENEMIES / "enemies.json"
 EnemyRootData = dict[str, dict]
 
 def load_enemies_json() -> EnemyRootData:
