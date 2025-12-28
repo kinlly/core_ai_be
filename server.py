@@ -399,6 +399,127 @@ def delete_item(item_name: str):
     save_json(data)
     return {"status": "deleted", "item": item_name}
 
+
+TARGET_DIR_RESOURCES = TARGET_DIR / "resources" 
+RESOURCES_FILE = TARGET_DIR_RESOURCES / "resources.json"
+
+def load_resources():
+    # Aseguramos que la carpeta exista
+    TARGET_DIR_RESOURCES.mkdir(parents=True, exist_ok=True)
+    
+    if not RESOURCES_FILE.exists():
+        with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        return {}
+        
+    try:
+        with open(RESOURCES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logging.error(f"Error cargando recursos: {e}")
+        return {}
+
+def save_resources(data):
+    # Aseguramos que la carpeta exista antes de guardar
+    TARGET_DIR_RESOURCES.mkdir(parents=True, exist_ok=True)
+    with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+# --- ENDPOINTS ---
+@app.get("/editor/resources")
+def get_resources():
+    """Retorna la lista completa de recursos."""
+    return load_resources()
+
+@app.post("/editor/resources/{res_id}")
+def create_resource(res_id: str, res_data: dict):
+    """Crea un recurso (ej: res_id='wood_01')."""
+    data = load_resources()
+    if res_id in data:
+        raise HTTPException(status_code=400, detail=f"El recurso '{res_id}' ya existe.")
+    
+    # Estructura mínima sugerida: { "name": "", "description": "", "type": "" }
+    data[res_id] = res_data
+    save_resources(data)
+    return {"status": "created", "id": res_id}
+
+@app.put("/editor/resources/{res_id}")
+def update_resource(res_id: str, res_data: dict):
+    """Actualiza un recurso existente."""
+    data = load_resources()
+    if res_id not in data:
+        raise HTTPException(status_code=404, detail="Recurso no encontrado")
+        
+    data[res_id] = res_data
+    save_resources(data)
+    return {"status": "updated", "id": res_id}
+
+@app.delete("/editor/resources/{res_id}")
+def delete_resource(res_id: str):
+    """Elimina un recurso."""
+    data = load_resources()
+    if res_id not in data:
+        raise HTTPException(status_code=404, detail="Recurso no encontrado")
+        
+    del data[res_id]
+    save_resources(data)
+    return {"status": "deleted", "id": res_id}
+
+# --- PATH PARA MISIONES ---
+TARGET_DIR_QUESTS = TARGET_DIR / "quests"
+QUESTS_FILE = TARGET_DIR_QUESTS / "quests.json"
+
+def load_quests():
+    TARGET_DIR_QUESTS.mkdir(parents=True, exist_ok=True)
+    if not QUESTS_FILE.exists():
+        with open(QUESTS_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        return {}
+    with open(QUESTS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_quests(data):
+    with open(QUESTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+# --- ENDPOINTS MISIONES ---
+
+@app.get("/editor/quests")
+def get_quests():
+    return load_quests()
+
+@app.get("/editor/catalog/all-items")
+def get_all_possible_items():
+    """Endpoint de conveniencia que combina Equip y Resources."""
+    equip = load_json() # Tu función de equipos
+    resources = load_resources() # Tu función de recursos
+    
+    # Marcamos el origen para que el FE sepa qué es qué
+    combined = {}
+    for k, v in equip.items():
+        combined[k] = { **v, "origin": "equip" }
+    for k, v in resources.items():
+        combined[k] = { **v, "origin": "resource" }
+    
+    return combined
+
+@app.post("/editor/quests/{quest_id}")
+def create_quest(quest_id: str, quest_data: dict):
+    data = load_quests()
+    if quest_id in data:
+        raise HTTPException(status_code=400, detail="ID de misión ya existe")
+    data[quest_id] = quest_data
+    save_quests(data)
+    return {"status": "created", "id": quest_id}
+
+@app.put("/editor/quests/{quest_id}")
+def update_quest(quest_id: str, quest_data: dict):
+    data = load_quests()
+    data[quest_id] = quest_data
+    save_quests(data)
+    return {"status": "updated", "id": quest_id}
+
 ENEMIES_PATH = TARGET_DIR_ENEMIES / "enemies.json"
 EnemyRootData = dict[str, dict]
 
