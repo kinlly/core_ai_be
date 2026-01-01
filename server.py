@@ -237,6 +237,7 @@ TARGET_DIR = Path(r"C:\repos\PenguinProto\datafiles")
 TARGET_DIR_SCENES = TARGET_DIR  / "scenes"
 TARGET_DIR_EQUIP = TARGET_DIR  / "equip"
 TARGET_DIR_ENEMIES = TARGET_DIR  / "enemies"
+TARGET_DIR_CHARACTERS = TARGET_DIR  / "characters"
 
 @app.put("/editor/json/{filename}")
 def update_json(filename: str, record: dict):
@@ -582,3 +583,61 @@ def delete_enemy(enemy_id: str):
     del data[enemy_id]
     save_enemies_json(data)
     return {"status": "deleted", "enemy_id": enemy_id}
+
+TARGET_DIR_CHARACTERS = TARGET_DIR  / "characters"
+CHARACTERS_PATH = TARGET_DIR_CHARACTERS / "characters.json"
+CharacterRootData = dict[str, dict]
+
+def load_characters_json() -> CharacterRootData:
+    """Carga los datos de personajes desde characters.json."""
+    if not os.path.exists(CHARACTERS_PATH):
+        return {}
+    try:
+        with open(CHARACTERS_PATH, "r") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except:
+        return {}
+def save_characters_json(data: CharacterRootData):
+    """Guarda los datos de personajes en characters.json."""
+    with open(CHARACTERS_PATH, "w") as f:
+        # Usamos indent=4 para mantenerlo legible
+        json.dump(data, f, indent=4)
+# --- ENDPOINTS CRUD DE PERSONAJES ---
+@app.get("/editor/characters")
+def get_characters():
+    """Retorna el diccionario completo y plano de personajes."""
+    return load_characters_json()
+@app.post("/editor/characters/{character_id}")
+def create_character(character_id: str, character_data: dict):
+    """Crea un nuevo personaje con una clave de ID única."""
+    data = load_characters_json()
+    
+    if character_id in data:
+        raise HTTPException(status_code=400, detail=f"El personaje ID '{character_id}' ya existe.")
+    
+    data[character_id] = character_data
+    save_characters_json(data)
+    return {"status": "created", "character_id": character_id}
+@app.put("/editor/characters/{character_id}")
+def update_character(character_id: str, character_data: dict):
+    """Actualiza un personaje específico por su ID."""
+    data = load_characters_json()
+    
+    if character_id not in data:
+        raise HTTPException(status_code=404, detail="Personaje no encontrado")
+        
+    data[character_id] = character_data
+    save_characters_json(data)
+    return {"status": "updated", "character_id": character_id}
+@app.delete("/editor/characters/{character_id}")
+def delete_character(character_id: str):
+    """Elimina un personaje específico por su ID."""
+    data = load_characters_json()
+    
+    if character_id not in data:
+        raise HTTPException(status_code=404, detail="Personaje no encontrado")
+        
+    del data[character_id]
+    save_characters_json(data)
+    return {"status": "deleted", "character_id": character_id}
