@@ -684,43 +684,43 @@ def delete_spell(spell_id: str):
     save_spells(data)
     return {"status": "deleted", "id": spell_id}
 
-TARGET_DIR_GEMS = TARGET_DIR / "gems"
-GEMS_FILE = TARGET_DIR_GEMS / "gems.json"
-def load_gems():
-    TARGET_DIR_GEMS.mkdir(parents=True, exist_ok=True)
-    if not GEMS_FILE.exists():
-        with open(GEMS_FILE, "w", encoding="utf-8") as f:
+TARGET_DIR_SOULS = TARGET_DIR / "souls"
+SOULS_FILE = TARGET_DIR_SOULS / "souls.json"
+def load_souls():
+    TARGET_DIR_SOULS.mkdir(parents=True, exist_ok=True)
+    if not SOULS_FILE.exists():
+        with open(SOULS_FILE, "w", encoding="utf-8") as f:
             json.dump({}, f)
         return {}
-    with open(GEMS_FILE, "r", encoding="utf-8") as f:
+    with open(SOULS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
-def save_gems(data):
-    with open(GEMS_FILE, "w", encoding="utf-8") as f:
+def save_souls(data):
+    with open(SOULS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
-# --- ENDPOINTS GEMS ---
-@app.get("/editor/gems")
-def get_gems():
-    return load_gems()
-@app.post("/editor/gems/{gem_id}")
-def create_gem(gem_id: str, gem_data: dict):  
-    data = load_gems()
-    if gem_id in data:
-        raise HTTPException(status_code=400, detail="ID de gema ya existe")
-    data[gem_id] = gem_data
-    save_gems(data)
-    return {"status": "created", "id": gem_id}
-@app.put("/editor/gems/{gem_id}")
-def update_gem(gem_id: str, gem_data: dict):
-    data = load_gems()
-    data[gem_id] = gem_data
-    save_gems(data)
-    return {"status": "updated", "id": gem_id} 
-@app.delete("/editor/gems/{gem_id}")
-def delete_gem(gem_id: str):
-    data = load_gems()
-    if gem_id not in data:
-        raise HTTPException(status_code=404, detail="Gema no encontrada")
+# --- ENDPOINTS SOULS ---
+@app.get("/editor/souls")
+def get_souls():
+    return load_souls()
+@app.post("/editor/souls/{soul_id}")
+def create_soul(soul_id: str, soul_data: dict):  
+    data = load_souls()
+    if soul_id in data:
+        raise HTTPException(status_code=400, detail="ID de soula ya existe")
+    data[soul_id] = soul_data
+    save_souls(data)
+    return {"status": "created", "id": soul_id}
+@app.put("/editor/souls/{soul_id}")
+def update_soul(soul_id: str, soul_data: dict):
+    data = load_souls()
+    data[soul_id] = soul_data
+    save_souls(data)
+    return {"status": "updated", "id": soul_id} 
+@app.delete("/editor/souls/{soul_id}")
+def delete_soul(soul_id: str):
+    data = load_souls()
+    if soul_id not in data:
+        raise HTTPException(status_code=404, detail="Soula no encontrada")
         
-    del data[gem_id]
-    save_gems(data)
-    return {"status": "deleted", "id": gem_id}
+    del data[soul_id]
+    save_souls(data)
+    return {"status": "deleted", "id": soul_id}
