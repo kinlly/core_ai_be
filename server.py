@@ -641,3 +641,86 @@ def delete_character(character_id: str):
     del data[character_id]
     save_characters_json(data)
     return {"status": "deleted", "character_id": character_id}
+
+TARGET_DIR_SPELLS = TARGET_DIR / "spells"
+SPELLS_FILE = TARGET_DIR_SPELLS / "spells.json"
+
+def load_spells():
+    TARGET_DIR_SPELLS.mkdir(parents=True, exist_ok=True)
+    if not SPELLS_FILE.exists():
+        with open(SPELLS_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        return {}
+    with open(SPELLS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+def save_spells(data):
+    with open(SPELLS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+# --- ENDPOINTS SPELLS ---
+@app.get("/editor/spells")
+def get_spells():
+    return load_spells()
+@app.post("/editor/spells/{spell_id}")
+def create_spell(spell_id: str, spell_data: dict):  
+    data = load_spells()
+    if spell_id in data:
+        raise HTTPException(status_code=400, detail="ID de hechizo ya existe")
+    data[spell_id] = spell_data
+    save_spells(data)
+    return {"status": "created", "id": spell_id}
+@app.put("/editor/spells/{spell_id}")
+def update_spell(spell_id: str, spell_data: dict):
+    data = load_spells()
+    data[spell_id] = spell_data
+    save_spells(data)
+    return {"status": "updated", "id": spell_id}
+@app.delete("/editor/spells/{spell_id}")
+def delete_spell(spell_id: str):
+    data = load_spells()
+    if spell_id not in data:
+        raise HTTPException(status_code=404, detail="Hechizo no encontrado")
+        
+    del data[spell_id]
+    save_spells(data)
+    return {"status": "deleted", "id": spell_id}
+
+TARGET_DIR_GEMS = TARGET_DIR / "gems"
+GEMS_FILE = TARGET_DIR_GEMS / "gems.json"
+def load_gems():
+    TARGET_DIR_GEMS.mkdir(parents=True, exist_ok=True)
+    if not GEMS_FILE.exists():
+        with open(GEMS_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        return {}
+    with open(GEMS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+def save_gems(data):
+    with open(GEMS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+# --- ENDPOINTS GEMS ---
+@app.get("/editor/gems")
+def get_gems():
+    return load_gems()
+@app.post("/editor/gems/{gem_id}")
+def create_gem(gem_id: str, gem_data: dict):  
+    data = load_gems()
+    if gem_id in data:
+        raise HTTPException(status_code=400, detail="ID de gema ya existe")
+    data[gem_id] = gem_data
+    save_gems(data)
+    return {"status": "created", "id": gem_id}
+@app.put("/editor/gems/{gem_id}")
+def update_gem(gem_id: str, gem_data: dict):
+    data = load_gems()
+    data[gem_id] = gem_data
+    save_gems(data)
+    return {"status": "updated", "id": gem_id} 
+@app.delete("/editor/gems/{gem_id}")
+def delete_gem(gem_id: str):
+    data = load_gems()
+    if gem_id not in data:
+        raise HTTPException(status_code=404, detail="Gema no encontrada")
+        
+    del data[gem_id]
+    save_gems(data)
+    return {"status": "deleted", "id": gem_id}
