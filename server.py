@@ -12,6 +12,19 @@ from peft import PeftModel
 from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import login
 from pathlib import Path
+import shutil
+
+EXTRA_BACKUP_DIR = Path(r"C:\repos\ylbtm\metadata")
+
+def backup_file(path: Path):
+    try:
+        EXTRA_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            backup_path = EXTRA_BACKUP_DIR / path.name
+            shutil.copy2(path, backup_path)
+            logging.info(f"Backup creado en {backup_path}")
+    except Exception as e:
+        logging.error(f"Error creando backup: {e}")
 from file_utils import load_jsonl, save_jsonl, load_txt
 
 from utils import apply_mistral_chat_template, log_response
@@ -172,6 +185,7 @@ def add_line(filename: str, record: dict):
     records = load_jsonl(path)
     records.append(record)
     save_jsonl(path, records)
+    backup_file(path)
     return {"status": "ok", "total": len(records)}
 
 @app.put("/files/{filename}/{index}")
@@ -184,6 +198,7 @@ def update_line(filename: str, index: int, record: dict):
         raise HTTPException(400, detail="Índice fuera de rango")
     records[index] = record
     save_jsonl(path, records)
+    backup_file(path)
     return {"status": "ok", "updated_index": index}
 
 @app.delete("/files/{filename}/{index}")
@@ -196,6 +211,7 @@ def delete_line(filename: str, index: int):
         raise HTTPException(400, detail="Índice fuera de rango")
     removed = records.pop(index)
     save_jsonl(path, records)
+    backup_file(path)
     return {"status": "ok", "deleted": removed}
 
 @app.get("/book")
@@ -231,6 +247,7 @@ def update_line(index: int, payload: LineUpdate):
     lines[index] = payload.line
     with path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
+    backup_file(path)
     return {"status": "ok", "updated_index": index}
 
 TARGET_DIR = Path(r"C:\repos\PenguinProto\datafiles")
@@ -256,7 +273,7 @@ def update_json(filename: str, record: dict):
     try:
         with path.open("w", encoding="utf-8") as f:
             json.dump(record, f, indent=4, ensure_ascii=False)
-        
+        backup_file(path)
         logging.info(f"🔄 JSON actualizado/sobrescrito correctamente en: {path}")
         return {"status": "ok", "filename": filename, "path": str(path)}
     except Exception as e:
@@ -308,7 +325,7 @@ def add_json(filename: str, record: dict):
     try:
         with path.open("w", encoding="utf-8") as f:
             json.dump(record, f, indent=4, ensure_ascii=False)
-        
+        backup_file(path)
         logging.info(f"✅ JSON guardado correctamente en la ruta fija: {path}")
         return {"status": "ok", "filename": filename, "path": str(path)}
     except Exception as e:
@@ -330,6 +347,7 @@ def save_json(data):
     TARGET_DIR_EQUIP.mkdir(parents=True, exist_ok=True)
     with EQUIP_PATH.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(EQUIP_PATH)
 
 # --- PATH & UTILS ---
 
@@ -349,10 +367,6 @@ def load_json() -> RootData:
     except:
         return {}
 
-def save_json(data: RootData):
-    with open(EQUIP_PATH, "w") as f:
-        # Usamos indent=4 para mantenerlo legible
-        json.dump(data, f, indent=4)
 
 # --- ENDPOINTS (Actualizados) ---
 
@@ -426,6 +440,7 @@ def save_resources(data):
     TARGET_DIR_RESOURCES.mkdir(parents=True, exist_ok=True)
     with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(RESOURCES_FILE)
 
 # --- ENDPOINTS ---
 @app.get("/editor/resources")
@@ -483,6 +498,7 @@ def load_quests():
 def save_quests(data):
     with open(QUESTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(QUESTS_FILE)
 
 # --- ENDPOINTS MISIONES ---
 
@@ -540,6 +556,7 @@ def save_enemies_json(data: EnemyRootData):
     with open(ENEMIES_PATH, "w") as f:
         # Usamos indent=4 para mantenerlo legible
         json.dump(data, f, indent=4)
+    backup_file(ENEMIES_PATH)
 
 # --- ENDPOINTS CRUD DE ENEMIGOS ---
 
@@ -603,6 +620,7 @@ def save_characters_json(data: CharacterRootData):
     with open(CHARACTERS_PATH, "w") as f:
         # Usamos indent=4 para mantenerlo legible
         json.dump(data, f, indent=4)
+    backup_file(CHARACTERS_PATH)
 # --- ENDPOINTS CRUD DE PERSONAJES ---
 @app.get("/editor/characters")
 def get_characters():
@@ -656,6 +674,7 @@ def load_spells():
 def save_spells(data):
     with open(SPELLS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(SPELLS_FILE)
 # --- ENDPOINTS SPELLS ---
 @app.get("/editor/spells")
 def get_spells():
@@ -697,6 +716,7 @@ def load_souls():
 def save_souls(data):
     with open(SOULS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(SOULS_FILE)
 # --- ENDPOINTS SOULS ---
 @app.get("/editor/souls")
 def get_souls():
