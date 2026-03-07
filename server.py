@@ -744,3 +744,56 @@ def delete_soul(soul_id: str):
     del data[soul_id]
     save_souls(data)
     return {"status": "deleted", "id": soul_id}
+
+TARGET_DIR_MERCHANTS = TARGET_DIR / "merchants"
+MERCHANTS_FILE = TARGET_DIR_MERCHANTS / "merchants.json"
+
+def load_merchants():
+    TARGET_DIR_MERCHANTS.mkdir(parents=True, exist_ok=True)
+    if not MERCHANTS_FILE.exists():
+        with open(MERCHANTS_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+        return {}
+    with open(MERCHANTS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_merchants(data):
+    with open(MERCHANTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(MERCHANTS_FILE)
+
+# --- ENDPOINTS MERCHANTS ---
+@app.get("/editor/merchants")
+def get_merchants():
+    """Retorna el diccionario completo de merchants."""
+    return load_merchants()
+
+@app.post("/editor/merchants/{merchant_id}")
+def create_merchant(merchant_id: str, merchant_data: dict):
+    """Crea un nuevo merchant con una clave de ID única."""
+    data = load_merchants()
+    if merchant_id in data:
+        raise HTTPException(status_code=400, detail=f"El merchant ID '{merchant_id}' ya existe.")
+    data[merchant_id] = merchant_data
+    save_merchants(data)
+    return {"status": "created", "merchant_id": merchant_id}
+
+@app.put("/editor/merchants/{merchant_id}")
+def update_merchant(merchant_id: str, merchant_data: dict):
+    """Actualiza un merchant específico por su ID."""
+    data = load_merchants()
+    if merchant_id not in data:
+        raise HTTPException(status_code=404, detail="Merchant no encontrado")
+    data[merchant_id] = merchant_data
+    save_merchants(data)
+    return {"status": "updated", "merchant_id": merchant_id}
+
+@app.delete("/editor/merchants/{merchant_id}")
+def delete_merchant(merchant_id: str):
+    """Elimina un merchant específico por su ID."""
+    data = load_merchants()
+    if merchant_id not in data:
+        raise HTTPException(status_code=404, detail="Merchant no encontrado")
+    del data[merchant_id]
+    save_merchants(data)
+    return {"status": "deleted", "merchant_id": merchant_id}
