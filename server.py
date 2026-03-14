@@ -360,7 +360,7 @@ def load_json() -> RootData:
         # Inicializamos con la estructura correcta vacía (un diccionario vacío)
         return {}
     try:
-        with open(EQUIP_PATH, "r") as f:
+        with open(EQUIP_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             # Nos aseguramos de que sea un diccionario, si no, devolvemos uno vacío
             return data if isinstance(data, dict) else {}
@@ -545,7 +545,7 @@ def load_enemies_json() -> EnemyRootData:
     if not os.path.exists(ENEMIES_PATH):
         return {}
     try:
-        with open(ENEMIES_PATH, "r") as f:
+        with open(ENEMIES_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data if isinstance(data, dict) else {}
     except:
@@ -553,9 +553,9 @@ def load_enemies_json() -> EnemyRootData:
 
 def save_enemies_json(data: EnemyRootData):
     """Guarda los datos de enemigos en enemies.json."""
-    with open(ENEMIES_PATH, "w") as f:
+    with open(ENEMIES_PATH, "w", encoding="utf-8") as f:
         # Usamos indent=4 para mantenerlo legible
-        json.dump(data, f, indent=4)
+        json.dump(data, f, indent=4, ensure_ascii=False)
     backup_file(ENEMIES_PATH)
 
 # --- ENDPOINTS CRUD DE ENEMIGOS ---
@@ -610,16 +610,16 @@ def load_characters_json() -> CharacterRootData:
     if not os.path.exists(CHARACTERS_PATH):
         return {}
     try:
-        with open(CHARACTERS_PATH, "r") as f:
+        with open(CHARACTERS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data if isinstance(data, dict) else {}
     except:
         return {}
 def save_characters_json(data: CharacterRootData):
     """Guarda los datos de personajes en characters.json."""
-    with open(CHARACTERS_PATH, "w") as f:
+    with open(CHARACTERS_PATH, "w", encoding="utf-8") as f:
         # Usamos indent=4 para mantenerlo legible
-        json.dump(data, f, indent=4)
+        json.dump(data, f, indent=4, ensure_ascii=False)
     backup_file(CHARACTERS_PATH)
 # --- ENDPOINTS CRUD DE PERSONAJES ---
 @app.get("/editor/characters")
