@@ -3,10 +3,13 @@ load_dotenv()
 
 import torch
 import os
+import re
 import json
 import logging
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -413,6 +416,35 @@ def delete_item(item_name: str):
     del data[item_name]
     save_json(data)
     return {"status": "deleted", "item": item_name}
+
+
+SPRITES_DIR = Path(r"C:\repos\ylbtm\assets\sprites")
+
+@app.get("/editor/sprite/{sprite_name}")
+def get_sprite(sprite_name: str):
+    """Serves a sprite PNG from the ylbtm sprites directory.
+    Accepts Godot sprite keys (e.g. spr_sword_T01) or plain filenames (e.g. sword_001).
+    Mapping: spr_type_Tnn → type_nnn.png
+    """
+    safe_name = Path(sprite_name).name  # prevent path traversal
+
+    candidates = [safe_name]
+
+    if safe_name.startswith("spr_"):
+        stripped = safe_name[4:]  # remove "spr_"
+        # spr_sword_T01 → sword_001
+        normalized = re.sub(r"_T(\d+)$", lambda m: f"_{int(m.group(1)):03d}", stripped)
+        candidates.append(normalized)
+        # fallback to base type sprite (e.g. sword.png)
+        base = stripped.split("_")[0]
+        candidates.append(base)
+
+    for name in candidates:
+        path = SPRITES_DIR / f"{name}.png"
+        if path.resolve().parent == SPRITES_DIR.resolve() and path.exists():
+            return FileResponse(path, media_type="image/png")
+
+    raise HTTPException(status_code=404, detail="Sprite not found")
 
 
 TARGET_DIR_RESOURCES = TARGET_DIR / "resources" 
