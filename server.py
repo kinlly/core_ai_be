@@ -695,7 +695,7 @@ def delete_character(character_id: str):
 
 # --- MOOD IMAGES ---
 YLBTM_CHARACTERS_DIR = Path(r"C:\repos\ylbtm\assets\characters")
-CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised", "scared", "tired", "home", "playful", "motivated", "shy", "jealous", "yandere", "tsundere", "crying"]
+CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised", "scared", "tired", "home", "playful", "motivated", "shy", "jealous", "yandere", "crying"]
 
 @app.get("/editor/characters/{character_id}/moods")
 def get_character_moods(character_id: str):
