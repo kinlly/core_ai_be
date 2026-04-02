@@ -6,7 +6,7 @@ import os
 import re
 import json
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -258,6 +258,7 @@ TARGET_DIR_SCENES = TARGET_DIR  / "scenes"
 TARGET_DIR_EQUIP = TARGET_DIR  / "equip"
 TARGET_DIR_ENEMIES = TARGET_DIR  / "enemies"
 TARGET_DIR_CHARACTERS = TARGET_DIR  / "characters"
+TARGET_DIR_SPELLS = TARGET_DIR  / "spells"
 
 @app.put("/editor/json/{filename}")
 def update_json(filename: str, record: dict):
@@ -692,7 +693,77 @@ def delete_character(character_id: str):
     save_characters_json(data)
     return {"status": "deleted", "character_id": character_id}
 
-TARGET_DIR_SPELLS = TARGET_DIR / "spells"
+# --- MOOD IMAGES ---
+YLBTM_CHARACTERS_DIR = Path(r"C:\repos\ylbtm\assets\characters")
+CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised"]
+
+@app.get("/editor/characters/{character_id}/moods")
+def get_character_moods(character_id: str):
+    """Returns existing mood images grouped by mood."""
+    char_dir = YLBTM_CHARACTERS_DIR / character_id
+    if not char_dir.exists():
+        return {}
+    result = {}
+    for mood in CHARACTER_MOODS:
+        images = sorted([
+            f.name for f in char_dir.glob(f"{character_id}-{mood}-*")
+            if not f.name.endswith(".import")
+        ])
+        if images:
+            result[mood] = images
+    return result
+
+@app.post("/editor/characters/{character_id}/mood/{mood}")
+async def upload_character_mood(character_id: str, mood: str, file: UploadFile = File(...)):
+    """Upload a mood image. Saves as {id}-{mood}-{n}.{ext}."""
+    if mood not in CHARACTER_MOODS:
+        raise HTTPException(400, detail=f"Mood inválido. Debe ser uno de: {CHARACTER_MOODS}")
+    char_dir = YLBTM_CHARACTERS_DIR / character_id
+    char_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename).suffix.lower() if file.filename and Path(file.filename).suffix else ".png"
+    existing = [f for f in char_dir.glob(f"{character_id}-{mood}-*") if not f.name.endswith(".import")]
+    index = len(existing) + 1
+    filename = f"{character_id}-{mood}-{index}{ext}"
+    dest = char_dir / filename
+    content = await file.read()
+    with open(dest, "wb") as f:
+        f.write(content)
+    logging.info(f"Mood image saved: {dest}")
+    return {"status": "ok", "filename": filename}
+
+@app.get("/editor/characters/{character_id}/mood-image/{filename}")
+def get_mood_image(character_id: str, filename: str):
+    """Serve a character mood image file."""
+    safe_filename = Path(filename).name
+    path = YLBTM_CHARACTERS_DIR / character_id / safe_filename
+    if not path.exists():
+        raise HTTPException(404, detail="Imagen no encontrada")
+    return FileResponse(str(path))
+
+@app.delete("/editor/characters/{character_id}/mood-image/{filename}")
+def delete_mood_image(character_id: str, filename: str):
+    """Delete a character mood image file."""
+    safe_filename = Path(filename).name
+    path = YLBTM_CHARACTERS_DIR / character_id / safe_filename
+    if not path.exists():
+        raise HTTPException(404, detail="Imagen no encontrada")
+    path.unlink()
+    logging.info(f"Mood image deleted: {path}")
+    return {"status": "deleted", "filename": safe_filename}
+
+@app.put("/editor/characters/{character_id}/mood-image/{filename}")
+async def replace_mood_image(character_id: str, filename: str, file: UploadFile = File(...)):
+    """Replace an existing mood image file in place (same filename)."""
+    safe_filename = Path(filename).name
+    path = YLBTM_CHARACTERS_DIR / character_id / safe_filename
+    if not path.exists():
+        raise HTTPException(404, detail="Imagen no encontrada")
+    content = await file.read()
+    with open(path, "wb") as f:
+        f.write(content)
+    logging.info(f"Mood image replaced: {path}")
+    return {"status": "replaced", "filename": safe_filename}
+
 SPELLS_FILE = TARGET_DIR_SPELLS / "spells.json"
 
 def load_spells():
