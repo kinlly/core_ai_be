@@ -696,34 +696,50 @@ def delete_character(character_id: str):
 # --- MOOD IMAGES ---
 YLBTM_CHARACTERS_DIR = Path(r"C:\repos\ylbtm\assets\characters")
 CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised", "scared", "tired", "home", "playful", "motivated", "shy", "jealous", "yandere", "crying"]
+MOOD_VARIANTS = ["left", "default", "right"]
 
 @app.get("/editor/characters/{character_id}/moods")
 def get_character_moods(character_id: str):
-    """Returns existing mood images grouped by mood."""
+    """Returns existing mood images grouped by mood and variant."""
     char_dir = YLBTM_CHARACTERS_DIR / character_id
     if not char_dir.exists():
         return {}
     result = {}
     for mood in CHARACTER_MOODS:
-        images = sorted([
+        all_files = sorted([
             f.name for f in char_dir.glob(f"{character_id}-{mood}-*")
             if not f.name.endswith(".import")
         ])
-        if images:
-            result[mood] = images
+        variants: dict = {"left": [], "default": [], "right": []}
+        for fname in all_files:
+            if f"-{mood}-left-" in fname:
+                variants["left"].append(fname)
+            elif f"-{mood}-right-" in fname:
+                variants["right"].append(fname)
+            else:
+                variants["default"].append(fname)
+        result[mood] = variants
     return result
 
-@app.post("/editor/characters/{character_id}/mood/{mood}")
-async def upload_character_mood(character_id: str, mood: str, file: UploadFile = File(...)):
-    """Upload a mood image. Saves as {id}-{mood}-{n}.{ext}."""
+@app.post("/editor/characters/{character_id}/mood/{mood}/{variant}")
+async def upload_character_mood(character_id: str, mood: str, variant: str, file: UploadFile = File(...)):
+    """Upload a mood image for a specific variant (left/default/right)."""
     if mood not in CHARACTER_MOODS:
         raise HTTPException(400, detail=f"Mood inválido. Debe ser uno de: {CHARACTER_MOODS}")
+    if variant not in MOOD_VARIANTS:
+        raise HTTPException(400, detail=f"Variant inválido. Debe ser uno de: {MOOD_VARIANTS}")
     char_dir = YLBTM_CHARACTERS_DIR / character_id
     char_dir.mkdir(parents=True, exist_ok=True)
     ext = Path(file.filename).suffix.lower() if file.filename and Path(file.filename).suffix else ".png"
-    existing = [f for f in char_dir.glob(f"{character_id}-{mood}-*") if not f.name.endswith(".import")]
-    index = len(existing) + 1
-    filename = f"{character_id}-{mood}-{index}{ext}"
+    if variant == "default":
+        existing = [f for f in char_dir.glob(f"{character_id}-{mood}-*")
+                    if not f.name.endswith(".import")
+                    and f"-{mood}-left-" not in f.name
+                    and f"-{mood}-right-" not in f.name]
+        filename = f"{character_id}-{mood}-{len(existing) + 1}{ext}"
+    else:
+        existing = [f for f in char_dir.glob(f"{character_id}-{mood}-{variant}-*") if not f.name.endswith(".import")]
+        filename = f"{character_id}-{mood}-{variant}-{len(existing) + 1}{ext}"
     dest = char_dir / filename
     content = await file.read()
     with open(dest, "wb") as f:
