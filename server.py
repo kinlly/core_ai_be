@@ -916,3 +916,58 @@ def delete_merchant(merchant_id: str):
     del data[merchant_id]
     save_merchants(data)
     return {"status": "deleted", "merchant_id": merchant_id}
+
+
+# --- BACKGROUND IMAGES ---
+YLBTM_BACKGROUNDS_DIR = Path(r"C:\repos\ylbtm\assets\backgrounds")
+
+@app.get("/editor/backgrounds")
+def list_backgrounds():
+    """List all background images."""
+    YLBTM_BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    files = [
+        f.name for f in sorted(YLBTM_BACKGROUNDS_DIR.iterdir())
+        if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
+        and not f.name.endswith(".import")
+    ]
+    return {"backgrounds": files}
+
+@app.post("/editor/backgrounds")
+async def upload_background(file: UploadFile = File(...)):
+    """Upload a new background image, auto-naming it background_N.ext."""
+    YLBTM_BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(file.filename).suffix.lower() if file.filename and Path(file.filename).suffix else ".png"
+    existing_stems = {
+        f.stem for f in YLBTM_BACKGROUNDS_DIR.iterdir()
+        if f.is_file() and not f.name.endswith(".import")
+    }
+    n = 1
+    while f"background_{n}" in existing_stems:
+        n += 1
+    filename = f"background_{n}{ext}"
+    dest = YLBTM_BACKGROUNDS_DIR / filename
+    content = await file.read()
+    with open(dest, "wb") as f:
+        f.write(content)
+    logging.info(f"Background saved: {dest}")
+    return {"status": "ok", "filename": filename}
+
+@app.get("/editor/backgrounds/{filename}")
+def get_background(filename: str):
+    """Serve a background image."""
+    safe_name = Path(filename).name
+    path = YLBTM_BACKGROUNDS_DIR / safe_name
+    if not path.resolve().parent == YLBTM_BACKGROUNDS_DIR.resolve() or not path.exists():
+        raise HTTPException(404, detail="Background not found")
+    return FileResponse(str(path))
+
+@app.delete("/editor/backgrounds/{filename}")
+def delete_background(filename: str):
+    """Delete a background image."""
+    safe_name = Path(filename).name
+    path = YLBTM_BACKGROUNDS_DIR / safe_name
+    if not path.exists():
+        raise HTTPException(404, detail="Background not found")
+    path.unlink()
+    logging.info(f"Background deleted: {path}")
+    return {"status": "deleted", "filename": safe_name}
