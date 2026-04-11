@@ -253,12 +253,62 @@ def update_line(index: int, payload: LineUpdate):
     backup_file(path)
     return {"status": "ok", "updated_index": index}
 
-TARGET_DIR = Path(r"C:\repos\PenguinProto\datafiles")
-TARGET_DIR_SCENES = TARGET_DIR  / "scenes"
-TARGET_DIR_EQUIP = TARGET_DIR  / "equip"
-TARGET_DIR_ENEMIES = TARGET_DIR  / "enemies"
-TARGET_DIR_CHARACTERS = TARGET_DIR  / "characters"
-TARGET_DIR_SPELLS = TARGET_DIR  / "spells"
+TARGET_DIR = Path(r"C:\repos\ylbtm\metadata")
+TARGET_DIR_SCENES = TARGET_DIR / "scenes"
+TRANSLATIONS_DIR = TARGET_DIR / "translations"
+
+# ── Translation helpers ──────────────────────────────────────────────────────
+LANG_CODES = ["es", "en", "pt-br", "pl", "zh-cn", "es-419", "de", "ja", "fr", "ru", "ko", "tr", "it"]
+
+def _load_translation(category: str) -> dict:
+    path = TRANSLATIONS_DIR / f"{category}.translation.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_translation(category: str, data: dict):
+    TRANSLATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    path = TRANSLATIONS_DIR / f"{category}.translation.json"
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def _ensure_translation_entry(category: str, key: str, item: dict, field_mapping: dict):
+    """Create translation entry for a newly created item (ES seeded, others empty)."""
+    data = _load_translation(category)
+    if key in data:
+        return
+    data[key] = {}
+    for trans_field, src_field in field_mapping.items():
+        es_value = item.get(src_field, "")
+        data[key][trans_field] = {lang: (es_value if lang == "es" else "") for lang in LANG_CODES}
+    _save_translation(category, data)
+
+def _sync_es_translation(category: str, key: str, old_item: dict, new_item: dict, field_mapping: dict):
+    """If a translatable field changed: update ES, clear all other languages."""
+    data = _load_translation(category)
+    if key not in data:
+        data[key] = {}
+    changed = False
+    for trans_field, src_field in field_mapping.items():
+        new_val = new_item.get(src_field, "")
+        old_val = old_item.get(src_field, "")
+        if new_val != old_val:
+            data[key][trans_field] = {lang: (new_val if lang == "es" else "") for lang in LANG_CODES}
+            changed = True
+    if changed:
+        _save_translation(category, data)
+
+def _delete_translation_entry(category: str, key: str):
+    """Remove translation entry when its source item is deleted."""
+    data = _load_translation(category)
+    if key in data:
+        del data[key]
+        _save_translation(category, data)
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.put("/editor/json/{filename}")
 def update_json(filename: str, record: dict):
@@ -336,40 +386,27 @@ def add_json(filename: str, record: dict):
         logging.error(f"⚠️ Error al guardar el archivo JSON en {path}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {e}")
 
-def load_json():
-    EQUIP_PATH = TARGET_DIR_EQUIP / "equip.json"
-    if not EQUIP_PATH.exists():
-        return {}
-    try:
-        with EQUIP_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def save_json(data):
-    EQUIP_PATH = TARGET_DIR_EQUIP / "equip.json"
-    TARGET_DIR_EQUIP.mkdir(parents=True, exist_ok=True)
-    with EQUIP_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-    backup_file(EQUIP_PATH)
-
 # --- PATH & UTILS ---
 
-EQUIP_PATH = TARGET_DIR_EQUIP / "equip.json"
+EQUIP_PATH = TARGET_DIR / "equip.json"
 # RootData ahora es un diccionario plano {item_id: item_data}
 RootData = dict[str, dict]
 
 def load_json() -> RootData:
     if not os.path.exists(EQUIP_PATH):
-        # Inicializamos con la estructura correcta vacía (un diccionario vacío)
         return {}
     try:
         with open(EQUIP_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Nos aseguramos de que sea un diccionario, si no, devolvemos uno vacío
             return data if isinstance(data, dict) else {}
-    except:
+    except Exception:
         return {}
+
+def save_json(data: RootData):
+    TARGET_DIR.mkdir(parents=True, exist_ok=True)
+    with open(EQUIP_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+    backup_file(EQUIP_PATH)
 
 
 # --- ENDPOINTS (Actualizados) ---
@@ -380,42 +417,40 @@ def get_equip():
     # Retorna directamente el diccionario plano de ítems.
     return load_json()
 
+_EQUIP_TRANS = {"displayDescription": "description"}
+
 @app.post("/editor/equip/{item_name}")
 def create_item(item_name: str, item_data: dict):
     """Crea un item con una clave de ID única."""
     data = load_json()
-    
-    # Verificamos si la clave ID ya existe en la lista plana
     if item_name in data:
         raise HTTPException(status_code=400, detail=f"El item ID '{item_name}' ya existe.")
-    
     data[item_name] = item_data
     save_json(data)
-    # Ya no necesitamos retornar la 'category'
+    _ensure_translation_entry("equip", item_name, item_data, _EQUIP_TRANS)
     return {"status": "created", "item": item_name}
 
 @app.put("/editor/equip/{item_name}")
 def update_item(item_name: str, item_data: dict):
     """Actualiza un item específico en tiempo real por su ID."""
     data = load_json()
-    
     if item_name not in data:
         raise HTTPException(status_code=404, detail="Item no encontrado")
-        
+    old = data[item_name]
     data[item_name] = item_data
     save_json(data)
+    _sync_es_translation("equip", item_name, old, item_data, _EQUIP_TRANS)
     return {"status": "updated", "item": item_name}
 
 @app.delete("/editor/equip/{item_name}")
 def delete_item(item_name: str):
     """Elimina un item específico por su ID."""
     data = load_json()
-    
     if item_name not in data:
         raise HTTPException(status_code=404, detail="Item no encontrado")
-        
     del data[item_name]
     save_json(data)
+    _delete_translation_entry("equip", item_name)
     return {"status": "deleted", "item": item_name}
 
 
@@ -448,18 +483,11 @@ def get_sprite(sprite_name: str):
     raise HTTPException(status_code=404, detail="Sprite not found")
 
 
-TARGET_DIR_RESOURCES = TARGET_DIR / "resources" 
-RESOURCES_FILE = TARGET_DIR_RESOURCES / "resources.json"
+RESOURCES_FILE = TARGET_DIR / "resources.json"
 
 def load_resources():
-    # Aseguramos que la carpeta exista
-    TARGET_DIR_RESOURCES.mkdir(parents=True, exist_ok=True)
-    
     if not RESOURCES_FILE.exists():
-        with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
         return {}
-        
     try:
         with open(RESOURCES_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -469,11 +497,11 @@ def load_resources():
         return {}
 
 def save_resources(data):
-    # Aseguramos que la carpeta exista antes de guardar
-    TARGET_DIR_RESOURCES.mkdir(parents=True, exist_ok=True)
     with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
     backup_file(RESOURCES_FILE)
+
+_RESOURCES_TRANS = {"displayName": "name", "displayDescription": "description"}
 
 # --- ENDPOINTS ---
 @app.get("/editor/resources")
@@ -483,47 +511,40 @@ def get_resources():
 
 @app.post("/editor/resources/{res_id}")
 def create_resource(res_id: str, res_data: dict):
-    """Crea un recurso (ej: res_id='wood_01')."""
     data = load_resources()
     if res_id in data:
         raise HTTPException(status_code=400, detail=f"El recurso '{res_id}' ya existe.")
-    
-    # Estructura mínima sugerida: { "name": "", "description": "", "type": "" }
     data[res_id] = res_data
     save_resources(data)
+    _ensure_translation_entry("resources", res_id, res_data, _RESOURCES_TRANS)
     return {"status": "created", "id": res_id}
 
 @app.put("/editor/resources/{res_id}")
 def update_resource(res_id: str, res_data: dict):
-    """Actualiza un recurso existente."""
     data = load_resources()
     if res_id not in data:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
-        
+    old = data[res_id]
     data[res_id] = res_data
     save_resources(data)
+    _sync_es_translation("resources", res_id, old, res_data, _RESOURCES_TRANS)
     return {"status": "updated", "id": res_id}
 
 @app.delete("/editor/resources/{res_id}")
 def delete_resource(res_id: str):
-    """Elimina un recurso."""
     data = load_resources()
     if res_id not in data:
         raise HTTPException(status_code=404, detail="Recurso no encontrado")
-        
     del data[res_id]
     save_resources(data)
+    _delete_translation_entry("resources", res_id)
     return {"status": "deleted", "id": res_id}
 
 # --- PATH PARA MISIONES ---
-TARGET_DIR_QUESTS = TARGET_DIR / "quests"
-QUESTS_FILE = TARGET_DIR_QUESTS / "quests.json"
+QUESTS_FILE = TARGET_DIR / "quests.json"
 
 def load_quests():
-    TARGET_DIR_QUESTS.mkdir(parents=True, exist_ok=True)
     if not QUESTS_FILE.exists():
-        with open(QUESTS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
         return {}
     with open(QUESTS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -532,6 +553,8 @@ def save_quests(data):
     with open(QUESTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
     backup_file(QUESTS_FILE)
+
+_QUESTS_TRANS = {"displayName": "title", "displayDescription": "description"}
 
 # --- ENDPOINTS MISIONES ---
 
@@ -561,16 +584,29 @@ def create_quest(quest_id: str, quest_data: dict):
         raise HTTPException(status_code=400, detail="ID de misión ya existe")
     data[quest_id] = quest_data
     save_quests(data)
+    _ensure_translation_entry("quests", quest_id, quest_data, _QUESTS_TRANS)
     return {"status": "created", "id": quest_id}
 
 @app.put("/editor/quests/{quest_id}")
 def update_quest(quest_id: str, quest_data: dict):
     data = load_quests()
+    old = data.get(quest_id, {})
     data[quest_id] = quest_data
     save_quests(data)
+    _sync_es_translation("quests", quest_id, old, quest_data, _QUESTS_TRANS)
     return {"status": "updated", "id": quest_id}
 
-ENEMIES_PATH = TARGET_DIR_ENEMIES / "enemies.json"
+@app.delete("/editor/quests/{quest_id}")
+def delete_quest(quest_id: str):
+    data = load_quests()
+    if quest_id not in data:
+        raise HTTPException(status_code=404, detail="Misión no encontrada")
+    del data[quest_id]
+    save_quests(data)
+    _delete_translation_entry("quests", quest_id)
+    return {"status": "deleted", "id": quest_id}
+
+ENEMIES_PATH = TARGET_DIR / "enemies.json"
 EnemyRootData = dict[str, dict]
 
 def load_enemies_json() -> EnemyRootData:
@@ -634,8 +670,7 @@ def delete_enemy(enemy_id: str):
     save_enemies_json(data)
     return {"status": "deleted", "enemy_id": enemy_id}
 
-TARGET_DIR_CHARACTERS = TARGET_DIR  / "characters"
-CHARACTERS_PATH = TARGET_DIR_CHARACTERS / "characters.json"
+CHARACTERS_PATH = TARGET_DIR / "characters.json"
 CharacterRootData = dict[str, dict]
 
 def load_characters_json() -> CharacterRootData:
@@ -659,38 +694,40 @@ def save_characters_json(data: CharacterRootData):
 def get_characters():
     """Retorna el diccionario completo y plano de personajes."""
     return load_characters_json()
+_CHARACTERS_TRANS = {"displayDescription": "description"}
+
 @app.post("/editor/characters/{character_id}")
 def create_character(character_id: str, character_data: dict):
     """Crea un nuevo personaje con una clave de ID única."""
     data = load_characters_json()
-    
     if character_id in data:
         raise HTTPException(status_code=400, detail=f"El personaje ID '{character_id}' ya existe.")
-    
     data[character_id] = character_data
     save_characters_json(data)
+    _ensure_translation_entry("characters", character_id, character_data, _CHARACTERS_TRANS)
     return {"status": "created", "character_id": character_id}
+
 @app.put("/editor/characters/{character_id}")
 def update_character(character_id: str, character_data: dict):
     """Actualiza un personaje específico por su ID."""
     data = load_characters_json()
-    
     if character_id not in data:
         raise HTTPException(status_code=404, detail="Personaje no encontrado")
-        
+    old = data[character_id]
     data[character_id] = character_data
     save_characters_json(data)
+    _sync_es_translation("characters", character_id, old, character_data, _CHARACTERS_TRANS)
     return {"status": "updated", "character_id": character_id}
+
 @app.delete("/editor/characters/{character_id}")
 def delete_character(character_id: str):
     """Elimina un personaje específico por su ID."""
     data = load_characters_json()
-    
     if character_id not in data:
         raise HTTPException(status_code=404, detail="Personaje no encontrado")
-        
     del data[character_id]
     save_characters_json(data)
+    _delete_translation_entry("characters", character_id)
     return {"status": "deleted", "character_id": character_id}
 
 # --- MOOD IMAGES ---
@@ -780,7 +817,7 @@ async def replace_mood_image(character_id: str, filename: str, file: UploadFile 
     logging.info(f"Mood image replaced: {path}")
     return {"status": "replaced", "filename": safe_filename}
 
-SPELLS_FILE = TARGET_DIR_SPELLS / "spells.json"
+SPELLS_FILE = TARGET_DIR / "spells.json"
 
 def load_spells():
     TARGET_DIR_SPELLS.mkdir(parents=True, exist_ok=True)
@@ -822,13 +859,9 @@ def delete_spell(spell_id: str):
     save_spells(data)
     return {"status": "deleted", "id": spell_id}
 
-TARGET_DIR_SOULS = TARGET_DIR / "souls"
-SOULS_FILE = TARGET_DIR_SOULS / "souls.json"
+SOULS_FILE = TARGET_DIR / "souls.json"
 def load_souls():
-    TARGET_DIR_SOULS.mkdir(parents=True, exist_ok=True)
     if not SOULS_FILE.exists():
-        with open(SOULS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
         return {}
     with open(SOULS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -864,14 +897,10 @@ def delete_soul(soul_id: str):
     save_souls(data)
     return {"status": "deleted", "id": soul_id}
 
-TARGET_DIR_MERCHANTS = TARGET_DIR / "merchants"
-MERCHANTS_FILE = TARGET_DIR_MERCHANTS / "merchants.json"
+MERCHANTS_FILE = TARGET_DIR / "merchants.json"
 
 def load_merchants():
-    TARGET_DIR_MERCHANTS.mkdir(parents=True, exist_ok=True)
     if not MERCHANTS_FILE.exists():
-        with open(MERCHANTS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
         return {}
     with open(MERCHANTS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -880,6 +909,8 @@ def save_merchants(data):
     with open(MERCHANTS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
     backup_file(MERCHANTS_FILE)
+
+_MERCHANTS_TRANS = {"displayDescription": "description"}
 
 # --- ENDPOINTS MERCHANTS ---
 @app.get("/editor/merchants")
@@ -895,6 +926,7 @@ def create_merchant(merchant_id: str, merchant_data: dict):
         raise HTTPException(status_code=400, detail=f"El merchant ID '{merchant_id}' ya existe.")
     data[merchant_id] = merchant_data
     save_merchants(data)
+    _ensure_translation_entry("merchants", merchant_id, merchant_data, _MERCHANTS_TRANS)
     return {"status": "created", "merchant_id": merchant_id}
 
 @app.put("/editor/merchants/{merchant_id}")
@@ -903,8 +935,10 @@ def update_merchant(merchant_id: str, merchant_data: dict):
     data = load_merchants()
     if merchant_id not in data:
         raise HTTPException(status_code=404, detail="Merchant no encontrado")
+    old = data[merchant_id]
     data[merchant_id] = merchant_data
     save_merchants(data)
+    _sync_es_translation("merchants", merchant_id, old, merchant_data, _MERCHANTS_TRANS)
     return {"status": "updated", "merchant_id": merchant_id}
 
 @app.delete("/editor/merchants/{merchant_id}")
@@ -915,6 +949,7 @@ def delete_merchant(merchant_id: str):
         raise HTTPException(status_code=404, detail="Merchant no encontrado")
     del data[merchant_id]
     save_merchants(data)
+    _delete_translation_entry("merchants", merchant_id)
     return {"status": "deleted", "merchant_id": merchant_id}
 
 
