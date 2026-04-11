@@ -820,10 +820,7 @@ async def replace_mood_image(character_id: str, filename: str, file: UploadFile 
 SPELLS_FILE = TARGET_DIR / "spells.json"
 
 def load_spells():
-    TARGET_DIR_SPELLS.mkdir(parents=True, exist_ok=True)
     if not SPELLS_FILE.exists():
-        with open(SPELLS_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
         return {}
     with open(SPELLS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
