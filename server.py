@@ -257,6 +257,14 @@ TARGET_DIR = Path(r"C:\repos\ylbtm\metadata")
 TARGET_DIR_SCENES = TARGET_DIR / "scenes"
 TRANSLATIONS_DIR = TARGET_DIR / "translations"
 
+def _normalize_scene_filename(filename: str) -> str:
+    safe_name = Path(filename).name.strip()
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Nombre de escena inválido.")
+    if not safe_name.lower().endswith(".json"):
+        safe_name += ".json"
+    return safe_name
+
 # ── Translation helpers ──────────────────────────────────────────────────────
 LANG_CODES = ["es", "en", "pt-br", "pl", "zh-cn", "es-419", "de", "ja", "fr", "ru", "ko", "tr", "it"]
 
@@ -312,9 +320,7 @@ def _delete_translation_entry(category: str, key: str):
 
 @app.put("/editor/json/{filename}")
 def update_json(filename: str, record: dict):
-    
-    if not filename.lower().endswith(".json"):
-        filename += ".json"
+    filename = _normalize_scene_filename(filename)
     
     path: Path = TARGET_DIR_SCENES / filename
     
@@ -365,8 +371,7 @@ def list_json_files():
 
 @app.post("/editor/json/{filename}")
 def add_json(filename: str, record: dict):
-    if not filename.lower().endswith(".json"):
-        filename += ".json"
+    filename = _normalize_scene_filename(filename)
     
     path: Path = TARGET_DIR_SCENES / filename
     
@@ -385,6 +390,34 @@ def add_json(filename: str, record: dict):
     except Exception as e:
         logging.error(f"⚠️ Error al guardar el archivo JSON en {path}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {e}")
+
+@app.post("/editor/json/{filename}/rename")
+def rename_json(filename: str, new_filename: str):
+    current_filename = _normalize_scene_filename(filename)
+    target_filename = _normalize_scene_filename(new_filename)
+
+    if current_filename == target_filename:
+        current_path = TARGET_DIR_SCENES / current_filename
+        return {"status": "ok", "filename": current_filename, "path": str(current_path.resolve())}
+
+    current_path = TARGET_DIR_SCENES / current_filename
+    target_path = TARGET_DIR_SCENES / target_filename
+
+    if not current_path.exists():
+        raise HTTPException(status_code=404, detail=f"La escena '{current_filename}' no existe.")
+    if target_path.exists():
+        raise HTTPException(status_code=400, detail=f"La escena '{target_filename}' ya existe.")
+
+    try:
+        TARGET_DIR_SCENES.mkdir(parents=True, exist_ok=True)
+        backup_file(current_path)
+        current_path.rename(target_path)
+        backup_file(target_path)
+        logging.info(f"📝 Escena renombrada: {current_filename} -> {target_filename}")
+        return {"status": "ok", "filename": target_filename, "path": str(target_path.resolve())}
+    except Exception as e:
+        logging.error(f"⚠️ Error al renombrar la escena {current_filename} -> {target_filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al renombrar la escena: {e}")
 
 # --- PATH & UTILS ---
 
