@@ -255,15 +255,22 @@ def update_line(index: int, payload: LineUpdate):
 
 TARGET_DIR = Path(r"C:\repos\ylbtm\metadata")
 TARGET_DIR_SCENES = TARGET_DIR / "scenes"
+TARGET_DIR_TIMELINES = TARGET_DIR / "timelines"
 TRANSLATIONS_DIR = TARGET_DIR / "translations"
 
-def _normalize_scene_filename(filename: str) -> str:
+def _normalize_editor_filename(filename: str, label: str) -> str:
     safe_name = Path(filename).name.strip()
     if not safe_name:
-        raise HTTPException(status_code=400, detail="Nombre de escena inválido.")
+        raise HTTPException(status_code=400, detail=f"Nombre de {label} inválido.")
     if not safe_name.lower().endswith(".json"):
         safe_name += ".json"
     return safe_name
+
+def _normalize_scene_filename(filename: str) -> str:
+    return _normalize_editor_filename(filename, "escena")
+
+def _normalize_timeline_filename(filename: str) -> str:
+    return _normalize_editor_filename(filename, "timeline")
 
 # ── Translation helpers ──────────────────────────────────────────────────────
 LANG_CODES = ["es", "en", "pt-br", "pl", "zh-cn", "es-419", "de", "ja", "fr", "ru", "ko", "tr", "it"]
@@ -418,6 +425,106 @@ def rename_json(filename: str, new_filename: str):
     except Exception as e:
         logging.error(f"⚠️ Error al renombrar la escena {current_filename} -> {target_filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al renombrar la escena: {e}")
+
+@app.put("/editor/timelines/{filename}")
+def update_timeline(filename: str, record: dict):
+    filename = _normalize_timeline_filename(filename)
+
+    path: Path = TARGET_DIR_TIMELINES / filename
+
+    try:
+        TARGET_DIR_TIMELINES.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Error al acceder al directorio {TARGET_DIR_TIMELINES}: {e}")
+        raise HTTPException(status_code=500, detail="Error al acceder al directorio de timelines.")
+
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(record, f, indent=4, ensure_ascii=False)
+        backup_file(path)
+        logging.info(f"🔄 Timeline actualizado/sobrescrito correctamente en: {path}")
+        return {"status": "ok", "filename": filename, "path": str(path)}
+    except Exception as e:
+        logging.error(f"⚠️ Error al actualizar el timeline en {path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al actualizar el timeline: {e}")
+
+@app.get("/editor/timelines")
+def list_timeline_files():
+    if not TARGET_DIR_TIMELINES.exists():
+        return {"files": []}
+
+    files_data = []
+
+    for f in sorted(TARGET_DIR_TIMELINES.glob("*.json")):
+        if f.is_file():
+            file_info = {
+                "name": f.name,
+                "size": f.stat().st_size,
+                "path": str(f.resolve()),
+                "content": None
+            }
+
+            try:
+                with f.open("r", encoding="utf-8") as file:
+                    file_info["content"] = json.load(file)
+            except json.JSONDecodeError:
+                logging.warning(f"⚠️ Error de formato JSON en el timeline: {f.name}. Se devuelve 'null' en 'content'.")
+            except Exception as e:
+                logging.error(f"⚠️ Error al leer el timeline {f.name}: {e}")
+
+            files_data.append(file_info)
+
+    return {"files": files_data}
+
+@app.post("/editor/timelines/{filename}")
+def add_timeline(filename: str, record: dict):
+    filename = _normalize_timeline_filename(filename)
+
+    path: Path = TARGET_DIR_TIMELINES / filename
+
+    try:
+        TARGET_DIR_TIMELINES.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Error al crear el directorio {TARGET_DIR_TIMELINES}: {e}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor al acceder al directorio de timelines.")
+
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(record, f, indent=4, ensure_ascii=False)
+        backup_file(path)
+        logging.info(f"✅ Timeline guardado correctamente en: {path}")
+        return {"status": "ok", "filename": filename, "path": str(path)}
+    except Exception as e:
+        logging.error(f"⚠️ Error al guardar el timeline en {path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar el timeline: {e}")
+
+@app.post("/editor/timelines/{filename}/rename")
+def rename_timeline(filename: str, new_filename: str):
+    current_filename = _normalize_timeline_filename(filename)
+    target_filename = _normalize_timeline_filename(new_filename)
+
+    if current_filename == target_filename:
+        current_path = TARGET_DIR_TIMELINES / current_filename
+        return {"status": "ok", "filename": current_filename, "path": str(current_path.resolve())}
+
+    current_path = TARGET_DIR_TIMELINES / current_filename
+    target_path = TARGET_DIR_TIMELINES / target_filename
+
+    if not current_path.exists():
+        raise HTTPException(status_code=404, detail=f"El timeline '{current_filename}' no existe.")
+    if target_path.exists():
+        raise HTTPException(status_code=400, detail=f"El timeline '{target_filename}' ya existe.")
+
+    try:
+        TARGET_DIR_TIMELINES.mkdir(parents=True, exist_ok=True)
+        backup_file(current_path)
+        current_path.rename(target_path)
+        backup_file(target_path)
+        logging.info(f"📝 Timeline renombrado: {current_filename} -> {target_filename}")
+        return {"status": "ok", "filename": target_filename, "path": str(target_path.resolve())}
+    except Exception as e:
+        logging.error(f"⚠️ Error al renombrar el timeline {current_filename} -> {target_filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al renombrar el timeline: {e}")
 
 # --- PATH & UTILS ---
 
