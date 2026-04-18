@@ -9,6 +9,7 @@ import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from datetime import datetime, timezone
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import PeftModel
@@ -257,6 +258,15 @@ TARGET_DIR = Path(r"C:\repos\ylbtm\metadata")
 TARGET_DIR_SCENES = TARGET_DIR / "scenes"
 TARGET_DIR_TIMELINES = TARGET_DIR / "timelines"
 TRANSLATIONS_DIR = TARGET_DIR / "translations"
+ALL_TIMELINE_FILENAME = "all_timeline.json"
+ALL_TIMELINE_TITLE = "all timeline"
+TIMELINE_DEFAULT_X = 80
+TIMELINE_DEFAULT_Y = 120
+TIMELINE_HORIZONTAL_GAP = 520
+TIMELINE_LAYOUTS_DIR = Path(__file__).resolve().parent / "editor_state" / "timelines"
+ALL_TIMELINE_LAYOUT_PATH = TIMELINE_LAYOUTS_DIR / "all_timeline_layout.json"
+CHAPTER_TIMELINE_RE = re.compile(r"^chapter[_-]?(\d+)\.json$", re.IGNORECASE)
+FULL_VIEW_ALIAS_FILENAMES = {"full-view.json", "full_view.json"}
 
 def _normalize_editor_filename(filename: str, label: str) -> str:
     safe_name = Path(filename).name.strip()
@@ -271,6 +281,387 @@ def _normalize_scene_filename(filename: str) -> str:
 
 def _normalize_timeline_filename(filename: str) -> str:
     return _normalize_editor_filename(filename, "timeline")
+
+def _timeline_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def _is_all_timeline_filename(filename: str) -> bool:
+    return filename.lower() == ALL_TIMELINE_FILENAME
+
+def _is_full_view_alias(filename: str) -> bool:
+    return filename.lower() in FULL_VIEW_ALIAS_FILENAMES
+
+def _timeline_name_sort_key(filename: str):
+    match = CHAPTER_TIMELINE_RE.match(filename)
+    if match:
+        return (0, int(match.group(1)), filename.lower())
+    return (1, filename.lower())
+
+def _timeline_card_sort_key(card: dict, fallback_index: int):
+    position = card.get("position", {}) if isinstance(card, dict) else {}
+    if isinstance(position, dict):
+        x = position.get("x")
+        y = position.get("y")
+    else:
+        x = None
+        y = None
+
+    fallback = _default_all_timeline_position(fallback_index)
+    card_x = x if isinstance(x, (int, float)) else fallback["x"]
+    card_y = y if isinstance(y, (int, float)) else fallback["y"]
+    return (card_x, card_y, fallback_index)
+
+def _default_all_timeline_position(index: int) -> dict:
+    return {
+        "x": TIMELINE_DEFAULT_X + index * TIMELINE_HORIZONTAL_GAP,
+        "y": TIMELINE_DEFAULT_Y + (index % 2) * 36,
+    }
+
+def _timeline_filename_to_chapter_label(filename: str) -> str:
+    match = CHAPTER_TIMELINE_RE.match(filename)
+    if match:
+        return f"chapter_{match.group(1).zfill(2)}"
+    return Path(filename).stem
+
+def _load_all_timeline_layout() -> tuple[dict, str | None]:
+    if not ALL_TIMELINE_LAYOUT_PATH.exists():
+        return {}, None
+
+    try:
+        with ALL_TIMELINE_LAYOUT_PATH.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except json.JSONDecodeError:
+        logging.warning(f"⚠️ Error de formato JSON en el layout del all timeline: {ALL_TIMELINE_LAYOUT_PATH}")
+        return {}, None
+    except Exception as e:
+        logging.error(f"⚠️ Error al leer el layout del all timeline {ALL_TIMELINE_LAYOUT_PATH}: {e}")
+        return {}, None
+
+    if not isinstance(payload, dict):
+        return {}, None
+
+    positions = payload.get("positions", {})
+    if not isinstance(positions, dict):
+        return {}, None
+
+    normalized_positions: dict[str, dict[str, int]] = {}
+    for card_id, raw_position in positions.items():
+        if not isinstance(card_id, str) or not isinstance(raw_position, dict):
+            continue
+        x = raw_position.get("x")
+        y = raw_position.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            continue
+        normalized_positions[card_id] = {
+            "x": round(float(x)),
+            "y": round(float(y)),
+        }
+
+    updated_at = payload.get("updatedAt")
+    return normalized_positions, updated_at if isinstance(updated_at, str) else None
+
+def _save_all_timeline_layout(record: dict) -> dict:
+    cards = record.get("cards", []) if isinstance(record, dict) else []
+    if not isinstance(cards, list):
+        raise HTTPException(status_code=400, detail="El all timeline necesita una lista válida de cards.")
+
+    positions: dict[str, dict] = {}
+    for raw_card in cards:
+        if not isinstance(raw_card, dict):
+            continue
+        card_id = raw_card.get("id")
+        position = raw_card.get("position")
+        if not isinstance(card_id, str) or not card_id.strip() or not isinstance(position, dict):
+            continue
+        x = position.get("x")
+        y = position.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            continue
+
+        entry = {
+            "x": round(float(x)),
+            "y": round(float(y)),
+        }
+        source_timeline_name = raw_card.get("sourceTimelineName")
+        chapter_label = raw_card.get("chapterLabel")
+        if isinstance(source_timeline_name, str) and source_timeline_name.strip():
+            entry["sourceTimelineName"] = source_timeline_name.strip()
+        if isinstance(chapter_label, str) and chapter_label.strip():
+            entry["chapterLabel"] = chapter_label.strip()
+        positions[card_id.strip()] = entry
+
+    payload = {
+        "version": 1,
+        "title": ALL_TIMELINE_TITLE,
+        "updatedAt": _timeline_now_iso(),
+        "positions": positions,
+    }
+
+    try:
+        TIMELINE_LAYOUTS_DIR.mkdir(parents=True, exist_ok=True)
+        with ALL_TIMELINE_LAYOUT_PATH.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logging.error(f"⚠️ Error al guardar el layout del all timeline en {ALL_TIMELINE_LAYOUT_PATH}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar el layout del all timeline: {e}")
+
+    return payload
+
+def _write_timeline_document(path: Path, record: dict):
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(record, file, indent=4, ensure_ascii=False)
+    backup_file(path)
+
+def _list_real_timeline_files() -> list[dict]:
+    if not TARGET_DIR_TIMELINES.exists():
+        return []
+
+    files_data: list[dict] = []
+
+    for f in sorted(TARGET_DIR_TIMELINES.glob("*.json"), key=lambda path: _timeline_name_sort_key(path.name)):
+        if not f.is_file():
+            continue
+        if _is_all_timeline_filename(f.name):
+            continue
+
+        file_info = {
+            "name": f.name,
+            "size": f.stat().st_size,
+            "path": str(f.resolve()),
+            "content": None,
+        }
+
+        try:
+            with f.open("r", encoding="utf-8") as file:
+                file_info["content"] = json.load(file)
+        except json.JSONDecodeError:
+            logging.warning(f"⚠️ Error de formato JSON en el timeline: {f.name}. Se devuelve 'null' en 'content'.")
+        except Exception as e:
+            logging.error(f"⚠️ Error al leer el timeline {f.name}: {e}")
+
+        files_data.append(file_info)
+
+    return files_data
+
+def _build_all_timeline_file(source_files: list[dict]) -> dict | None:
+    if len(source_files) == 0:
+        return None
+
+    layout_positions, layout_updated_at = _load_all_timeline_layout()
+    aggregated_cards: list[dict] = []
+    latest_updated_at = layout_updated_at
+
+    for source_file in sorted(source_files, key=lambda item: _timeline_name_sort_key(str(item.get("name", "")))):
+        filename = source_file.get("name")
+        content = source_file.get("content")
+        if not isinstance(filename, str) or not isinstance(content, dict):
+            continue
+
+        raw_cards = content.get("cards", [])
+        if not isinstance(raw_cards, list):
+            continue
+
+        chapter_label = _timeline_filename_to_chapter_label(filename)
+        sorted_cards = sorted(
+            (card for card in raw_cards if isinstance(card, dict)),
+            key=lambda card: _timeline_card_sort_key(card, raw_cards.index(card)),
+        )
+
+        for card in sorted_cards:
+            card_id = card.get("id")
+            if not isinstance(card_id, str) or not card_id.strip():
+                continue
+
+            default_position = _default_all_timeline_position(len(aggregated_cards))
+            position = layout_positions.get(card_id, default_position)
+            updated_at = card.get("updatedAt")
+            if isinstance(updated_at, str) and (latest_updated_at is None or updated_at > latest_updated_at):
+                latest_updated_at = updated_at
+
+            aggregated_cards.append({
+                "id": card_id,
+                "markdown": card.get("markdown", "") if isinstance(card.get("markdown"), str) else "",
+                "position": {
+                    "x": position.get("x", default_position["x"]),
+                    "y": position.get("y", default_position["y"]),
+                },
+                "color": card.get("color", "#ee9b64") if isinstance(card.get("color"), str) else "#ee9b64",
+                "updatedAt": updated_at if isinstance(updated_at, str) else _timeline_now_iso(),
+                "sourceTimelineName": filename,
+                "chapterLabel": chapter_label,
+            })
+
+    content = {
+        "version": 1,
+        "title": ALL_TIMELINE_TITLE,
+        "updatedAt": latest_updated_at or _timeline_now_iso(),
+        "cards": aggregated_cards,
+    }
+
+    return {
+        "name": ALL_TIMELINE_FILENAME,
+        "displayName": "Full View",
+        "size": len(json.dumps(content, ensure_ascii=False)),
+        "path": str(ALL_TIMELINE_LAYOUT_PATH.resolve()),
+        "isAggregate": True,
+        "isReadonlyContent": False,
+        "sourceCount": len(source_files),
+        "content": content,
+    }
+
+def _build_empty_full_view_file() -> dict:
+    content = {
+        "version": 1,
+        "title": "full view",
+        "updatedAt": _timeline_now_iso(),
+        "cards": [],
+    }
+
+    return {
+        "name": ALL_TIMELINE_FILENAME,
+        "displayName": "Full View",
+        "size": len(json.dumps(content, ensure_ascii=False)),
+        "path": str(ALL_TIMELINE_LAYOUT_PATH.resolve()),
+        "isAggregate": True,
+        "isReadonlyContent": False,
+        "sourceCount": 0,
+        "content": content,
+    }
+
+def _sync_full_view(record: dict) -> dict:
+    if not isinstance(record, dict):
+        raise HTTPException(status_code=400, detail="El full view necesita un documento válido.")
+
+    raw_cards = record.get("cards", [])
+    if not isinstance(raw_cards, list):
+        raise HTTPException(status_code=400, detail="El full view necesita una lista válida de cards.")
+
+    source_files = _list_real_timeline_files()
+    source_documents: dict[str, dict] = {}
+    card_sources_by_id: dict[str, str] = {}
+
+    for source_file in source_files:
+        filename = source_file.get("name")
+        content = source_file.get("content")
+        path_str = source_file.get("path")
+        if not isinstance(filename, str) or not isinstance(content, dict) or not isinstance(path_str, str):
+            continue
+
+        source_documents[filename] = {
+            "path": Path(path_str),
+            "content": content,
+        }
+
+        source_cards = content.get("cards", [])
+        if not isinstance(source_cards, list):
+            continue
+
+        for source_card in source_cards:
+            if not isinstance(source_card, dict):
+                continue
+            card_id = source_card.get("id")
+            if isinstance(card_id, str) and card_id.strip():
+                card_sources_by_id[card_id.strip()] = filename
+
+    payload_cards_by_id: dict[str, dict] = {}
+    for raw_card in raw_cards:
+        if not isinstance(raw_card, dict):
+            raise HTTPException(status_code=400, detail="Hay cards inválidas en el full view.")
+
+        card_id = raw_card.get("id")
+        if not isinstance(card_id, str) or not card_id.strip():
+            raise HTTPException(status_code=400, detail="Todas las cards del full view necesitan un ID válido.")
+        card_id = card_id.strip()
+
+        expected_source = card_sources_by_id.get(card_id)
+        if expected_source is None:
+            raise HTTPException(status_code=400, detail=f"La card '{card_id}' no existe en los timelines origen.")
+
+        source_timeline_name = raw_card.get("sourceTimelineName")
+        if isinstance(source_timeline_name, str) and source_timeline_name.strip():
+            source_timeline_name = source_timeline_name.strip()
+        else:
+            source_timeline_name = expected_source
+
+        if source_timeline_name != expected_source:
+            raise HTTPException(status_code=400, detail=f"La card '{card_id}' pertenece a '{expected_source}', no a '{source_timeline_name}'.")
+
+        if card_id in payload_cards_by_id:
+            raise HTTPException(status_code=400, detail=f"La card '{card_id}' aparece duplicada en el full view.")
+
+        payload_card = dict(raw_card)
+        payload_card["sourceTimelineName"] = expected_source
+        payload_cards_by_id[card_id] = payload_card
+
+    modified_timelines: list[str] = []
+    removed_cards = 0
+    updated_cards = 0
+
+    for timeline_name, source_entry in source_documents.items():
+        content = source_entry["content"]
+        source_cards = content.get("cards", [])
+        if not isinstance(source_cards, list):
+            continue
+
+        next_cards: list = []
+        timeline_changed = False
+
+        for source_card in source_cards:
+            if not isinstance(source_card, dict):
+                next_cards.append(source_card)
+                continue
+
+            card_id = source_card.get("id")
+            if not isinstance(card_id, str) or not card_id.strip():
+                next_cards.append(source_card)
+                continue
+            card_id = card_id.strip()
+
+            payload_card = payload_cards_by_id.get(card_id)
+            if payload_card is None:
+                removed_cards += 1
+                timeline_changed = True
+                continue
+
+            next_card = dict(source_card)
+            card_changed = False
+
+            payload_markdown = payload_card.get("markdown")
+            if isinstance(payload_markdown, str) and payload_markdown != source_card.get("markdown"):
+                next_card["markdown"] = payload_markdown
+                card_changed = True
+
+            payload_color = payload_card.get("color")
+            if isinstance(payload_color, str) and payload_color.strip() and payload_color != source_card.get("color"):
+                next_card["color"] = payload_color
+                card_changed = True
+
+            if card_changed:
+                payload_updated_at = payload_card.get("updatedAt")
+                next_card["updatedAt"] = payload_updated_at if isinstance(payload_updated_at, str) and payload_updated_at.strip() else _timeline_now_iso()
+                updated_cards += 1
+                timeline_changed = True
+
+            next_cards.append(next_card)
+
+        if timeline_changed:
+            content["cards"] = next_cards
+            content["updatedAt"] = _timeline_now_iso()
+            _write_timeline_document(source_entry["path"], content)
+            modified_timelines.append(timeline_name)
+
+    layout_payload = _save_all_timeline_layout({
+        "cards": list(payload_cards_by_id.values()),
+    })
+
+    return {
+        "status": "ok",
+        "path": str(ALL_TIMELINE_LAYOUT_PATH.resolve()),
+        "saved_cards": len(layout_payload.get("positions", {})),
+        "modified_timelines": modified_timelines,
+        "removed_cards": removed_cards,
+        "updated_cards": updated_cards,
+    }
 
 # ── Translation helpers ──────────────────────────────────────────────────────
 LANG_CODES = ["es", "en", "pt-br", "pl", "zh-cn", "es-419", "de", "ja", "fr", "ru", "ko", "tr", "it"]
@@ -430,6 +821,14 @@ def rename_json(filename: str, new_filename: str):
 def update_timeline(filename: str, record: dict):
     filename = _normalize_timeline_filename(filename)
 
+    if _is_full_view_alias(filename):
+        logging.info("🔄 Sincronizando full view mediante ruta dedicada.")
+        return _sync_full_view(record)
+
+    if _is_all_timeline_filename(filename):
+        logging.info("🔄 Sincronizando full view mediante alias de all timeline.")
+        return _sync_full_view(record)
+
     path: Path = TARGET_DIR_TIMELINES / filename
 
     try:
@@ -450,35 +849,26 @@ def update_timeline(filename: str, record: dict):
 
 @app.get("/editor/timelines")
 def list_timeline_files():
-    if not TARGET_DIR_TIMELINES.exists():
-        return {"files": []}
+    return {"files": _list_real_timeline_files()}
 
-    files_data = []
+@app.get("/editor/timelines/full-view")
+def get_full_view_timeline():
+    source_files = _list_real_timeline_files()
+    full_view_file = _build_all_timeline_file(source_files)
+    if full_view_file is None:
+        full_view_file = _build_empty_full_view_file()
+    return {"file": full_view_file}
 
-    for f in sorted(TARGET_DIR_TIMELINES.glob("*.json")):
-        if f.is_file():
-            file_info = {
-                "name": f.name,
-                "size": f.stat().st_size,
-                "path": str(f.resolve()),
-                "content": None
-            }
-
-            try:
-                with f.open("r", encoding="utf-8") as file:
-                    file_info["content"] = json.load(file)
-            except json.JSONDecodeError:
-                logging.warning(f"⚠️ Error de formato JSON en el timeline: {f.name}. Se devuelve 'null' en 'content'.")
-            except Exception as e:
-                logging.error(f"⚠️ Error al leer el timeline {f.name}: {e}")
-
-            files_data.append(file_info)
-
-    return {"files": files_data}
+@app.put("/editor/timelines/full-view")
+def update_full_view_timeline(record: dict):
+    return _sync_full_view(record)
 
 @app.post("/editor/timelines/{filename}")
 def add_timeline(filename: str, record: dict):
     filename = _normalize_timeline_filename(filename)
+
+    if _is_all_timeline_filename(filename) or _is_full_view_alias(filename):
+        raise HTTPException(status_code=400, detail="El all timeline se genera automáticamente y no se puede crear manualmente.")
 
     path: Path = TARGET_DIR_TIMELINES / filename
 
@@ -502,6 +892,9 @@ def add_timeline(filename: str, record: dict):
 def rename_timeline(filename: str, new_filename: str):
     current_filename = _normalize_timeline_filename(filename)
     target_filename = _normalize_timeline_filename(new_filename)
+
+    if _is_all_timeline_filename(current_filename) or _is_all_timeline_filename(target_filename) or _is_full_view_alias(current_filename) or _is_full_view_alias(target_filename):
+        raise HTTPException(status_code=400, detail="El all timeline es virtual y no se puede renombrar.")
 
     if current_filename == target_filename:
         current_path = TARGET_DIR_TIMELINES / current_filename
