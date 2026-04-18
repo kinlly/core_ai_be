@@ -1205,6 +1205,240 @@ def delete_enemy(enemy_id: str):
 
 CHARACTERS_PATH = TARGET_DIR / "characters.json"
 CharacterRootData = dict[str, dict]
+CHARACTER_DESIGN_TYPES = (
+    "Shinigami Attack",
+    "Shinigami Magic",
+    "Shinigami 0",
+    "Shinigami Defense",
+    "Lazo",
+    "DiosElemental",
+    "Demon",
+    "Desconocido",
+)
+LEGACY_CHARACTER_TYPE_MAP = {
+    "shinigami_attack": "Shinigami Attack",
+    "shinigami_magic": "Shinigami Magic",
+    "shinigami_0": "Shinigami 0",
+    "shinigami_def": "Shinigami Defense",
+    "lazo": "Lazo",
+    "nagas": "Desconocido",
+    "omeg": "Desconocido",
+    "rey": "Desconocido",
+    "civil": "Desconocido",
+    "teacher": "Desconocido",
+}
+SKIN_TONES = ("very_pale", "pale", "light", "tan", "dark", "deep_dark")
+BODY_TYPES = ("petite", "slim", "athletic", "defined", "muscular", "bulky", "tall_slender")
+HEIGHT_CATEGORIES = ("very_short", "short", "average", "tall", "very_tall")
+HAIR_LENGTHS = ("bald", "very_short", "short", "medium", "long", "very_long")
+HAIR_TEXTURES = ("straight", "wavy", "curly", "coily", "spiky", "messy")
+HAIR_STYLES = ("loose", "ponytail", "side_ponytail", "twintails", "braided", "half_up", "bun", "topknot", "tied_back", "layered", "short_cut", "undercut", "ceremonial", "custom")
+EYE_SPECIALS = ("none", "glow", "heterochromia", "dual_color", "slit_pupil", "void_pupil", "cross_pattern", "ring_pattern", "covered")
+EYE_INTENSITIES = ("low", "medium", "high", "extreme")
+FACE_STRUCTURES = ("soft", "round", "oval", "sharp", "angular", "mature", "youthful", "severe")
+COMBAT_ROLES = ("melee", "ranged", "support", "control", "tank", "assassin", "hybrid", "unknown")
+WEAPON_TYPES = ("none", "scythe", "sword", "dagger", "spear", "bow", "wand", "shield", "axe")
+ENERGY_TYPES = ("none", "arcane", "celestial", "elemental", "sound", "death", "tempo", "gravity", "demonic", "hybrid", "unknown", "custom")
+ARCHETYPES = ("leader", "protector", "strategist", "rival", "berserker", "prodigy", "mentor", "healer", "guardian", "schemer", "tragic", "wanderer", "royal", "unknown")
+VOICE_TONES = ("soft", "calm", "cold", "warm", "playful", "sharp", "aggressive", "broken", "elegant", "authoritative", "childlike")
+MOVEMENT_STYLES = ("precise", "fluid", "elegant", "heavy", "fast", "unstable", "predatory", "disciplined", "brutal", "floating")
+ETHNIC_INFLUENCES = ("none", "northern", "eastern", "southern", "western", "desert", "mountain", "islander", "celestial", "mixed", "fantasy_custom")
+AURA_DENSITIES = ("light", "medium", "heavy", "overwhelming")
+AURA_EFFECTS = ("flames", "particles", "light", "distortion", "smoke", "electricity", "custom")
+CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised", "scared", "tired", "home", "playful", "motivated", "shy", "jealous", "yandere", "crying"]
+MOOD_VARIANTS = ["left", "default", "right"]
+
+def _normalize_option_key(value: str) -> str:
+    return re.sub(r"[\s-]+", "_", value.strip().lower())
+
+def _normalize_enum_value(value, allowed_values, fallback: str, aliases: dict[str, str] | None = None) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+
+    normalized_value = _normalize_option_key(value)
+    for allowed_value in allowed_values:
+        if _normalize_option_key(allowed_value) == normalized_value:
+            return allowed_value
+
+    if aliases and normalized_value in aliases:
+        return aliases[normalized_value]
+
+    return fallback
+
+def _normalize_text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+    if isinstance(value, str):
+        return [item.strip() for item in re.split(r"[,;\n]+", value) if item.strip()]
+
+    return []
+
+def _normalize_optional_number(value):
+    if isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        return int(value) if float(value).is_integer() else float(value)
+
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = float(value)
+            return int(parsed) if parsed.is_integer() else parsed
+        except ValueError:
+            return None
+
+    return None
+
+def _pick_string(*values) -> str:
+    for value in values:
+        if isinstance(value, str):
+            return value
+
+    return ""
+
+def _pick_optional_string(*values) -> str | None:
+    value = _pick_string(*values).strip()
+    return value or None
+
+def _format_character_scene_label(value: str) -> str:
+    words = re.split(r"[_\-\s]+", (value or "").strip())
+    return " ".join(word[:1].upper() + word[1:] for word in words if word)
+
+def _normalize_character_design(design: dict) -> dict:
+    design = design if isinstance(design, dict) else {}
+    hair = design.get("hair") if isinstance(design.get("hair"), dict) else {}
+    eyes = design.get("eyes") if isinstance(design.get("eyes"), dict) else {}
+    aura = design.get("aura") if isinstance(design.get("aura"), dict) else {}
+
+    energy_source = design.get("energyType")
+    raw_energy_values = energy_source if isinstance(energy_source, list) else [energy_source]
+    normalized_energy_values = []
+    for raw_energy_value in raw_energy_values:
+        normalized_value = _normalize_enum_value(raw_energy_value, ENERGY_TYPES, "unknown")
+        if normalized_value not in normalized_energy_values:
+            normalized_energy_values.append(normalized_value)
+
+    if not normalized_energy_values:
+        normalized_energy_values = ["unknown"]
+
+    return {
+        "type": _normalize_enum_value(design.get("type"), CHARACTER_DESIGN_TYPES, "Desconocido", LEGACY_CHARACTER_TYPE_MAP),
+        "ageReal": _normalize_optional_number(design.get("ageReal")),
+        "ageAppearance": _normalize_optional_number(design.get("ageAppearance")),
+        "skinTone": _normalize_enum_value(design.get("skinTone"), SKIN_TONES, "light"),
+        "bodyType": _normalize_enum_value(design.get("bodyType"), BODY_TYPES, "slim"),
+        "height": _normalize_enum_value(design.get("height"), HEIGHT_CATEGORIES, "average"),
+        "hair": {
+            "color": _pick_string(hair.get("color"), design.get("hairColor")),
+            "secondaryColor": _pick_optional_string(hair.get("secondaryColor")),
+            "length": _normalize_enum_value(hair.get("length"), HAIR_LENGTHS, "medium"),
+            "texture": _normalize_enum_value(hair.get("texture"), HAIR_TEXTURES, "straight"),
+            "style": _normalize_enum_value(hair.get("style"), HAIR_STYLES, "custom"),
+            "description": _pick_string(hair.get("description"), design.get("hairDescription")),
+        },
+        "eyes": {
+            "color": _pick_string(eyes.get("color"), design.get("eyesColor")),
+            "secondaryColor": _pick_optional_string(eyes.get("secondaryColor")),
+            "special": _normalize_enum_value(eyes.get("special"), EYE_SPECIALS, "none"),
+            "intensity": _normalize_enum_value(eyes.get("intensity"), EYE_INTENSITIES, "medium"),
+            "description": _pick_string(eyes.get("description")),
+        },
+        "faceStructure": _normalize_enum_value(design.get("faceStructure"), FACE_STRUCTURES, "oval"),
+        "distinctiveFeatures": _normalize_text_list(design.get("distinctiveFeatures")),
+        "combatRole": _normalize_enum_value(design.get("combatRole"), COMBAT_ROLES, "unknown"),
+        "weapon": _normalize_enum_value(design.get("weapon"), WEAPON_TYPES, "none"),
+        "energyType": normalized_energy_values,
+        "personalityDetails": _pick_string(design.get("personalityDetails"), design.get("personalityDescription"), design.get("personality")),
+        "archetype": _normalize_enum_value(design.get("archetype"), ARCHETYPES, "unknown"),
+        "coreTrait": _pick_string(design.get("coreTrait")),
+        "innerConflict": _pick_string(design.get("innerConflict")),
+        "likes": _normalize_text_list(design.get("likes")),
+        "hates": _normalize_text_list(design.get("hates")),
+        "fears": _normalize_text_list(design.get("fears")),
+        "voice": _normalize_enum_value(design.get("voice"), VOICE_TONES, "calm"),
+        "movementStyle": _normalize_enum_value(design.get("movementStyle"), MOVEMENT_STYLES, "disciplined"),
+        "aura": {
+            "color": _pick_string(aura.get("color")),
+            "secondaryColor": _pick_optional_string(aura.get("secondaryColor")),
+            "density": _normalize_enum_value(aura.get("density"), AURA_DENSITIES, "light"),
+            "effect": _normalize_enum_value(aura.get("effect"), AURA_EFFECTS, "custom"),
+            "description": _pick_string(aura.get("description")),
+        },
+        "symbolicTheme": _pick_string(design.get("symbolicTheme")),
+        "ethnicInfluence": _normalize_enum_value(design.get("ethnicInfluence"), ETHNIC_INFLUENCES, "none"),
+        "extraInfo": _pick_string(design.get("extraInfo"), design.get("notes")),
+    }
+
+def _normalize_character_template(character_id: str, character_data: dict) -> dict:
+    template = character_data.get("template")
+    if not isinstance(template, dict):
+        template = {}
+
+    design = template.get("designCharacter")
+    if not isinstance(design, dict):
+        design = {}
+
+    scene_label_source = template.get("sceneLabel") or character_data.get("name") or character_id
+    preview_mood = template.get("previewMood") if template.get("previewMood") in CHARACTER_MOODS else "neutral"
+    preview_variant = template.get("previewVariant") if template.get("previewVariant") in MOOD_VARIANTS else "default"
+
+    return {
+        "sceneLabel": _format_character_scene_label(str(scene_label_source)) or _format_character_scene_label(character_id),
+        "previewMood": preview_mood,
+        "previewVariant": preview_variant,
+        "designCharacter": _normalize_character_design(design),
+    }
+
+def _normalize_character_data(character_id: str, character_data: dict) -> dict:
+    normalized = dict(character_data) if isinstance(character_data, dict) else {}
+    normalized["template"] = _normalize_character_template(character_id, normalized)
+    return normalized
+
+def _resolve_character_preview_candidates(char_dir: Path, character_id: str, mood: str, variant: str) -> list[Path]:
+    if variant == "default":
+        return sorted([
+            file for file in char_dir.glob(f"{character_id}-{mood}-*")
+            if not file.name.endswith(".import")
+            and f"-{mood}-left-" not in file.name
+            and f"-{mood}-right-" not in file.name
+        ])
+
+    return sorted([
+        file for file in char_dir.glob(f"{character_id}-{mood}-{variant}-*")
+        if not file.name.endswith(".import")
+    ])
+
+def _resolve_character_preview_path(character_id: str, mood: str | None = None, variant: str | None = None) -> Path | None:
+    data = load_characters_json()
+    character_data = data.get(character_id, {})
+    template = _normalize_character_template(character_id, character_data if isinstance(character_data, dict) else {})
+
+    resolved_mood = mood if mood in CHARACTER_MOODS else template["previewMood"]
+    resolved_variant = variant if variant in MOOD_VARIANTS else template["previewVariant"]
+
+    char_dir = YLBTM_CHARACTERS_DIR / character_id
+    if not char_dir.exists():
+        return None
+
+    attempts = [
+        (resolved_mood, resolved_variant),
+        (resolved_mood, "default"),
+        ("neutral", "default"),
+    ]
+
+    seen: set[tuple[str, str]] = set()
+    for attempt_mood, attempt_variant in attempts:
+        key = (attempt_mood, attempt_variant)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        candidates = _resolve_character_preview_candidates(char_dir, character_id, attempt_mood, attempt_variant)
+        if candidates:
+            return candidates[0]
+
+    return None
 
 def load_characters_json() -> CharacterRootData:
     """Carga los datos de personajes desde characters.json."""
@@ -1213,7 +1447,21 @@ def load_characters_json() -> CharacterRootData:
     try:
         with open(CHARACTERS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data if isinstance(data, dict) else {}
+            if not isinstance(data, dict):
+                return {}
+
+            normalized: CharacterRootData = {}
+            changed = False
+            for character_id, character_data in data.items():
+                normalized_character = _normalize_character_data(character_id, character_data)
+                normalized[character_id] = normalized_character
+                if normalized_character != character_data:
+                    changed = True
+
+            if changed:
+                save_characters_json(normalized)
+
+            return normalized
     except:
         return {}
 def save_characters_json(data: CharacterRootData):
@@ -1235,9 +1483,10 @@ def create_character(character_id: str, character_data: dict):
     data = load_characters_json()
     if character_id in data:
         raise HTTPException(status_code=400, detail=f"El personaje ID '{character_id}' ya existe.")
-    data[character_id] = character_data
+    normalized_character = _normalize_character_data(character_id, character_data)
+    data[character_id] = normalized_character
     save_characters_json(data)
-    _ensure_translation_entry("characters", character_id, character_data, _CHARACTERS_TRANS)
+    _ensure_translation_entry("characters", character_id, normalized_character, _CHARACTERS_TRANS)
     return {"status": "created", "character_id": character_id}
 
 @app.put("/editor/characters/{character_id}")
@@ -1247,9 +1496,10 @@ def update_character(character_id: str, character_data: dict):
     if character_id not in data:
         raise HTTPException(status_code=404, detail="Personaje no encontrado")
     old = data[character_id]
-    data[character_id] = character_data
+    normalized_character = _normalize_character_data(character_id, character_data)
+    data[character_id] = normalized_character
     save_characters_json(data)
-    _sync_es_translation("characters", character_id, old, character_data, _CHARACTERS_TRANS)
+    _sync_es_translation("characters", character_id, old, normalized_character, _CHARACTERS_TRANS)
     return {"status": "updated", "character_id": character_id}
 
 @app.delete("/editor/characters/{character_id}")
@@ -1265,8 +1515,13 @@ def delete_character(character_id: str):
 
 # --- MOOD IMAGES ---
 YLBTM_CHARACTERS_DIR = Path(r"C:\repos\ylbtm\assets\characters")
-CHARACTER_MOODS = ["happy", "neutral", "sad", "angry", "surprised", "scared", "tired", "home", "playful", "motivated", "shy", "jealous", "yandere", "crying"]
-MOOD_VARIANTS = ["left", "default", "right"]
+
+@app.get("/editor/characters/{character_id}/preview-image")
+def get_character_preview_image(character_id: str, mood: str | None = None, variant: str | None = None):
+    preview_path = _resolve_character_preview_path(character_id, mood, variant)
+    if preview_path is None:
+        raise HTTPException(404, detail="Preview no encontrada")
+    return FileResponse(str(preview_path))
 
 @app.get("/editor/characters/{character_id}/moods")
 def get_character_moods(character_id: str):
